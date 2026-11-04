@@ -104,8 +104,8 @@
       name: String(p.name || 'Sans titre'),
       voices: normalizeVoices(p.voices, () => true),
       samples: normalizeVoices(p.samples, hasSample),
-      synthLevel: clamp(Number(p.synthLevel ?? 1), 0, 1),
-      sampleLevel: clamp(Number(p.sampleLevel ?? 0.7), 0, 1),
+      synthLevel: clamp(Number(p.synthLevel ?? 0.5), 0, 2),   // gain linéaire ; -6 dB par défaut
+      sampleLevel: clamp(Number(p.sampleLevel ?? 0.7), 0, 4),
       mode: MODES.some(m => m.id === p.mode) ? p.mode : 'both',
       sound: { ...DEFAULT_SOUND, ...(p.sound || {}) },
       sampleSound: { ...DEFAULT_SAMPLE_SOUND, ...(p.sampleSound || {}) },
@@ -581,7 +581,7 @@
       ${p.mode !== 'samples' ? `
       <div class="section pad">
         <div class="section-title">Pad 1 — Synthé
-          <label class="level">Niveau <input type="range" id="synth-level" min="0" max="1" step="0.01"></label>
+          <label class="level">Niveau <input type="range" id="synth-level" min="-36" max="6" step="0.5"><span class="db" id="synth-level-db"></span></label>
           <span class="spacer"></span>
           ${clearButton('voices')}
         </div>
@@ -593,7 +593,7 @@
       ${p.mode !== 'voices' ? `
       <div class="section pad">
         <div class="section-title">Pad 2 — Harmonium
-          <label class="level">Niveau <input type="range" id="sample-level" min="0" max="1" step="0.01"></label>
+          <label class="level">Niveau <input type="range" id="sample-level" min="-36" max="12" step="0.5"><span class="db" id="sample-level-db"></span></label>
           <span class="spacer"></span>
           ${clearButton('samples')}
         </div>
@@ -618,20 +618,31 @@
     for (const b of main.querySelectorAll('[data-clear]')) {
       b.addEventListener('click', () => { p[b.dataset.clear] = {}; commit(); });
     }
-    const synthLevel = main.querySelector('#synth-level');
-    if (synthLevel) {
-      synthLevel.value = p.synthLevel;
-      synthLevel.addEventListener('input', () => { p.synthLevel = Number(synthLevel.value); engine.setSynthLevel(p.synthLevel); save(); });
-    }
-    const level = main.querySelector('#sample-level');
-    if (level) {
-      level.value = p.sampleLevel;
-      level.addEventListener('input', () => { p.sampleLevel = Number(level.value); engine.setSampleLevel(p.sampleLevel); save(); });
-    }
+    bindLevel(main, '#synth-level', '#synth-level-db', () => p.synthLevel, v => { p.synthLevel = v; engine.setSynthLevel(v); });
+    bindLevel(main, '#sample-level', '#sample-level-db', () => p.sampleLevel, v => { p.sampleLevel = v; engine.setSampleLevel(v); });
 
     for (const kind of KINDS) {
       if ($('#grid-' + kind)) { renderGrid(kind, p); renderSound(kind, p); }
     }
+  }
+
+  // Curseur de niveau en décibels (le morceau garde un gain linéaire).
+  const toDb = g => (g <= 0 ? -60 : 20 * Math.log10(g));
+  const fromDb = db => Math.pow(10, db / 20);
+  function bindLevel(root, sliderSel, labelSel, get, set) {
+    const slider = root.querySelector(sliderSel);
+    if (!slider) return;
+    const label = root.querySelector(labelSel);
+    const show = () => { const db = toDb(get()); label.textContent = (db <= Number(slider.min) ? 'muet' : (db > 0 ? '+' : '') + db.toFixed(1) + ' dB'); };
+    slider.value = clamp(toDb(get()), Number(slider.min), Number(slider.max));
+    show();
+    slider.addEventListener('input', () => {
+      const db = Number(slider.value);
+      set(db <= Number(slider.min) ? 0 : fromDb(db));
+      show();
+      save();
+    });
+    slider.addEventListener('dblclick', () => { slider.value = sliderSel.includes('synth') ? -6 : -3; slider.dispatchEvent(new Event('input')); });
   }
 
   function soundPanel(kind, title) {

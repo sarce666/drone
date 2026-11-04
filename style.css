@@ -332,7 +332,8 @@ input[type="range"] { touch-action: pan-y; }
   display: flex; align-items: center; gap: 6px;
   text-transform: none; letter-spacing: 0;
 }
-.section-title .level input { width: 110px; accent-color: var(--accent); }
+.section-title .level input { width: 150px; accent-color: var(--accent); }
+.section-title .level .db { min-width: 58px; font-variant-numeric: tabular-nums; color: var(--text); }
 
 /* Sélecteur de pads */
 .seg {
