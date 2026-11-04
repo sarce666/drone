@@ -47,6 +47,8 @@ affichent « Nouvelle version disponible » à leur prochaine ouverture. Dépôt
   règle son volume. Le curseur « Niveau » règle le volume global du pad.
 - **Pad 2 — Harmonium** : même grille, mêmes gestes, même curseur « Niveau ». Les notes grisées n'existent pas dans
   la banque (Do2 à Ré5).
+- **Grosse caisse** : « Kick : ON/OFF », tempo en BPM (champ, boutons − / +, curseur), niveau. Le point à gauche bat
+  la mesure. Son : `samples/kick/kick5.wav` (copie de `sounds/grosse caisse/kick 5.wav`).
 - **Son** (un panneau sous chaque pad) : brillance et résonance du filtre, mouvement du filtre, chorus, saturation.
   Le synthé a en plus « épaisseur » (2 oscillateurs désaccordés). Double-clic sur un curseur pour revenir à la
   valeur par défaut. Sur l'harmonium, la chaîne d'effets est partagée par toutes les notes du pad.

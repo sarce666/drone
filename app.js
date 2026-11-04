@@ -65,7 +65,8 @@
   const useWav = /^https?:$/.test(location.protocol);
   const hasSample = midi => midi >= SAMPLE_MIN && midi <= SAMPLE_MAX;
   const wavUrl = midi => SAMPLE_DIR + noteName(midi).replace('#', 's') + '.wav';
-  const allSampleUrls = () => Array.from({ length: SAMPLE_MAX - SAMPLE_MIN + 1 }, (_, i) => wavUrl(SAMPLE_MIN + i));
+  const KICK_URL = 'samples/kick/kick5.wav';
+  const allSampleUrls = () => [...Array.from({ length: SAMPLE_MAX - SAMPLE_MIN + 1 }, (_, i) => wavUrl(SAMPLE_MIN + i)), KICK_URL];
 
   // ---------- État ----------
   let state = load();
@@ -108,6 +109,11 @@
       synthLevel: clamp(Number(p.synthLevel ?? 0.5), 0, 2),   // gain linéaire ; -6 dB par défaut
       sampleLevel: clamp(Number(p.sampleLevel ?? 1), 0, 4),
       mode: MODES.some(m => m.id === p.mode) ? p.mode : 'both',
+      kick: {
+        on: !!p.kick?.on,
+        bpm: clamp(Math.round(Number(p.kick?.bpm) || 80), 30, 240),
+        level: clamp(Number(p.kick?.level ?? 0.8), 0, 4),
+      },
       sound: { ...DEFAULT_SOUND, ...(p.sound || {}) },
       sampleSound: { ...DEFAULT_SAMPLE_SOUND, ...(p.sampleSound || {}) },
       updatedAt: Number(p.updatedAt) || 0,
@@ -261,6 +267,63 @@
     }
   }
 
+  // ---------- Grosse caisse au tempo ----------
+  // Planifie chaque frappe sur l'horloge audio (précise), 200 ms en avance.
+  const kick = {
+    buffer: null, loading: null, running: false, bpm: 80, nextBeat: 0, timer: null, gain: null,
+
+    get ctx() { return Tone.getContext().rawContext; },
+
+    load() {
+      if (this.buffer) return Promise.resolve(this.buffer);
+      if (!this.loading) {
+        this.loading = fetch(KICK_URL)
+          .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer(); })
+          .then(b => new Promise((res, rej) => this.ctx.decodeAudioData(b, res, rej)))
+          .then(buf => { this.buffer = buf; updateCacheStatus(); return buf; })
+          .catch(err => { this.loading = null; console.error('Kick illisible', err); throw err; });
+      }
+      return this.loading;
+    },
+
+    start(bpm, level) {
+      if (!this.gain) { this.gain = this.ctx.createGain(); Tone.connect(this.gain, engine.master); }
+      this.gain.gain.value = level;
+      this.bpm = bpm;
+      if (this.running) return;
+      this.running = true;
+      this.load().then(() => {
+        if (!this.running) return;
+        this.nextBeat = this.ctx.currentTime + 0.05;
+        this.tick();
+        this.timer = setInterval(() => this.tick(), 50);
+      }).catch(() => { this.running = false; });
+    },
+
+    tick() {
+      const now = this.ctx.currentTime;
+      if (this.nextBeat < now - 0.5) this.nextBeat = now + 0.02; // l'onglet a été mis en pause
+      while (this.nextBeat < now + 0.2) {
+        const src = this.ctx.createBufferSource();
+        src.buffer = this.buffer;
+        src.connect(this.gain);
+        src.start(this.nextBeat);
+        const beatEl = $('#beat');
+        if (beatEl) setTimeout(() => { beatEl.classList.add('hit'); setTimeout(() => beatEl.classList.remove('hit'), 90); }, Math.max(0, (this.nextBeat - now) * 1000));
+        this.nextBeat += 60 / this.bpm;
+      }
+    },
+
+    setBpm(bpm) { this.bpm = bpm; },
+    setLevel(level) { if (this.gain) this.gain.gain.setTargetAtTime(level, this.ctx.currentTime, 0.05); },
+
+    stop() {
+      this.running = false;
+      clearInterval(this.timer);
+      this.timer = null;
+    },
+  };
+
   // ---------- Moteur audio ----------
   const engine = {
     ready: false,
@@ -297,6 +360,7 @@
       this.playing = false;
       for (const midi of [...this.chains.keys()]) this.release(midi);
       for (const midi of [...this.samples.keys()]) this.stopSample(midi);
+      kick.stop();
       renderTransport();
       renderList();
     },
@@ -333,6 +397,8 @@
       }
       for (const midi of [...this.samples.keys()]) if (!(midi in wantedS)) this.stopSample(midi);
       if (p) { this.sampleBus.gain.rampTo(p.sampleLevel, 0.2); applyFx(this.sampleFx, p.sampleSound); }
+
+      if (p && p.kick.on) kick.start(p.kick.bpm, p.kick.level); else kick.stop();
     },
 
     release(midi) {
@@ -586,6 +652,22 @@
         </div>
       </div>
 
+      <div class="section kick">
+        <div class="section-title">Grosse caisse
+          <label class="level">Niveau <input type="range" id="kick-level" min="-36" max="12" step="0.5"><span class="db" id="kick-level-db"></span></label>
+          <span class="spacer"></span>
+          <button class="btn small ${p.kick.on ? 'on' : ''}" id="kick-toggle">${p.kick.on ? 'Kick : ON' : 'Kick : OFF'}</button>
+        </div>
+        <div class="kick-row">
+          <span class="beat ${p.kick.on ? '' : 'off'}" id="beat"></span>
+          <button class="btn small" id="bpm-minus">−</button>
+          <input id="bpm" type="number" min="30" max="240" step="1" inputmode="numeric">
+          <button class="btn small" id="bpm-plus">+</button>
+          <span class="bpm-label">BPM</span>
+          <input id="bpm-slider" type="range" min="30" max="240" step="1">
+        </div>
+      </div>
+
       ${p.mode !== 'samples' ? `
       <div class="section pad">
         <div class="section-title">Pad 1 — Synthé
@@ -627,6 +709,8 @@
       b.addEventListener('click', () => { p[b.dataset.clear] = {}; commit(); });
     }
     bindLevel(main, '#synth-level', '#synth-level-db', () => p.synthLevel, v => { p.synthLevel = v; engine.setSynthLevel(v); });
+    bindLevel(main, '#kick-level', '#kick-level-db', () => p.kick.level, v => { p.kick.level = v; kick.setLevel(v); });
+    bindKick(main, p);
     bindLevel(main, '#sample-level', '#sample-level-db', () => p.sampleLevel, v => { p.sampleLevel = v; engine.setSampleLevel(v); });
 
     for (const kind of KINDS) {
@@ -651,6 +735,34 @@
       save();
     });
     slider.addEventListener('dblclick', () => { slider.value = sliderSel.includes('synth') ? -6 : -3; slider.dispatchEvent(new Event('input')); });
+  }
+
+  function bindKick(root, p) {
+    const num = root.querySelector('#bpm');
+    const slider = root.querySelector('#bpm-slider');
+    const toggle = root.querySelector('#kick-toggle');
+    const beat = root.querySelector('#beat');
+    const show = () => { num.value = p.kick.bpm; slider.value = p.kick.bpm; };
+    const setBpm = v => {
+      p.kick.bpm = clamp(Math.round(Number(v) || p.kick.bpm), 30, 240);
+      show();
+      kick.setBpm(p.kick.bpm);
+      save();
+    };
+    show();
+    num.addEventListener('change', () => setBpm(num.value));
+    num.addEventListener('keydown', e => { if (e.key === 'Enter') num.blur(); });
+    slider.addEventListener('input', () => setBpm(slider.value));
+    root.querySelector('#bpm-minus').addEventListener('click', () => setBpm(p.kick.bpm - 1));
+    root.querySelector('#bpm-plus').addEventListener('click', () => setBpm(p.kick.bpm + 1));
+    toggle.addEventListener('click', () => {
+      p.kick.on = !p.kick.on;
+      toggle.textContent = p.kick.on ? 'Kick : ON' : 'Kick : OFF';
+      toggle.classList.toggle('on', p.kick.on);
+      beat.classList.toggle('off', !p.kick.on);
+      save();
+      if (p.kick.on && !engine.playing) engine.play(); else engine.sync();
+    });
   }
 
   function soundPanel(kind, title) {

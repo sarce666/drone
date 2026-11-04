@@ -365,6 +365,36 @@ input[type="range"] { touch-action: pan-y; accent-color: var(--green); }
 .seg button:hover { background: var(--panel-2); }
 .seg button.on { background: var(--green); color: #000; }
 
+/* Grosse caisse */
+.btn.on { background: var(--green); color: #000; border-color: var(--green); }
+.kick-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.kick-row .beat {
+  width: 18px; height: 18px;
+  border: 2px solid var(--paper);
+  background: transparent;
+  transition: background 0.05s, transform 0.05s;
+}
+.kick-row .beat.hit { background: var(--green); transform: scale(1.35); }
+.kick-row .beat.off { border-style: dashed; opacity: 0.4; }
+.kick-row #bpm {
+  width: 74px;
+  padding: 4px 6px;
+  background: #000;
+  border: 2px solid var(--paper);
+  color: var(--paper);
+  font-family: var(--cond);
+  font-size: 20px;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+.kick-row .bpm-label { font-family: var(--cond); letter-spacing: 0.08em; }
+.kick-row #bpm-slider { flex: 1; min-width: 140px; max-width: 360px; }
+
 /* Grille de notes */
 .grid {
   display: grid;
