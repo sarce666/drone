@@ -4,7 +4,7 @@
      via le bouton « Garder les sons hors ligne » de l'app.
    Changer VERSION force la mise à jour du shell chez les utilisateurs. */
 
-const VERSION = 'drones-2026-11-04-150723';
+const VERSION = 'drones-2026-11-04-155950';
 const SHELL_CACHE = 'drones-shell-' + VERSION;
 const SAMPLE_CACHE = 'drones-samples-v1';
 
@@ -22,7 +22,9 @@ const SHELL = [
 
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(SHELL_CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting())
+    caches.open(SHELL_CACHE)
+      .then(cache => cache.addAll(SHELL.map(u => new Request(u, { cache: 'reload' })))) // jamais depuis le cache HTTP
+      .then(() => self.skipWaiting())
   );
 });
 
@@ -56,7 +58,7 @@ self.addEventListener('fetch', event => {
 
   // En développement local : réseau d'abord, pour voir les modifications sans changer VERSION.
   if (['localhost', '127.0.0.1'].includes(location.hostname)) {
-    event.respondWith(fetch(req).catch(() => caches.match(req, { ignoreSearch: true })));
+    event.respondWith(fetch(req, { cache: 'no-store' }).catch(() => caches.match(req, { ignoreSearch: true })));
     return;
   }
 

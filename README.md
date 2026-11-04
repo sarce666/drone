@@ -20,7 +20,7 @@ C'est une application web installable (PWA), publiée sur GitHub Pages :
 
 **<https://sarce666.github.io/drone/>**
 
-Sur l'iPad, l'ouvrir une fois dans Safari, puis « Partager » → « Sur l'écran d'accueil ». Elle fonctionne ensuite hors ligne : le bouton
+Sur l'iPad ou l'iPhone, l'ouvrir une fois dans Safari, puis « Partager » → « Sur l'écran d'accueil ». Sur téléphone, les grilles de notes défilent horizontalement. Elle fonctionne ensuite hors ligne : le bouton
 « Garder les sons hors ligne » télécharge les 39 WAV dans le cache de l'appareil. Les morceaux sont enregistrés sur
 l'appareil lui-même.
 

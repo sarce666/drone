@@ -406,3 +406,33 @@ input[type="range"] { touch-action: pan-y; }
   .cell { min-height: 40px; border-radius: 6px; }
   .cell .note { font-size: 11px; }
 }
+
+/* Téléphone : grilles défilantes horizontalement, étiquettes d'octave fixes */
+@media (max-width: 600px) {
+  .grid {
+    grid-template-columns: 58px repeat(12, 46px);
+    gap: 5px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+  .row-label {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: var(--bg);
+    box-shadow: 6px 0 0 var(--bg); /* couvre l'interstice entre l'étiquette et la première case */
+    justify-content: flex-start;
+    padding-left: 2px;
+    font-size: 11px;
+  }
+  .cell { min-height: 46px; border-radius: 8px; }
+  .cell .note { font-size: 12px; }
+  .col-head { font-size: 12px; height: 24px; }
+  .section-title { flex-wrap: wrap; row-gap: 8px; }
+  .section-title .level input { width: 90px; }
+  .piece-name { font-size: 22px; }
+  .seg button { padding: 6px 10px; font-size: 12px; }
+  .side { max-height: 45vh; }
+}
