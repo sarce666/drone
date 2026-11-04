@@ -376,15 +376,18 @@ input[type="range"] { touch-action: pan-y; accent-color: var(--green); }
   gap: 10px;
   flex-wrap: wrap;
 }
-.kick-row .beat {
-  width: 18px; height: 18px;
+.beat {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px;
   border: 2px solid var(--paper);
   background: transparent;
+  font-family: var(--cond);
+  font-size: 14px;
   transition: background 0.05s, transform 0.05s;
 }
-.kick-row .beat.hit { background: var(--green); transform: scale(1.35); }
-.kick-row .beat.off { border-style: dashed; opacity: 0.4; }
-.kick-row #bpm {
+.beat.hit { background: var(--green); color: #000; transform: scale(1.25); }
+.beat.off { border-style: dashed; opacity: 0.4; }
+.section-title #bpm {
   width: 74px;
   padding: 4px 6px;
   background: #000;
@@ -395,8 +398,32 @@ input[type="range"] { touch-action: pan-y; accent-color: var(--green); }
   letter-spacing: 0.04em;
   text-align: center;
 }
-.kick-row .bpm-label { font-family: var(--cond); letter-spacing: 0.08em; }
-.kick-row #bpm-slider { flex: 1; min-width: 140px; max-width: 360px; }
+.section-title .bpm-label { font-size: 13px; letter-spacing: 0.08em; }
+.section-title #bpm-slider { width: 160px; }
+
+.tracks { display: flex; flex-direction: column; gap: 8px; }
+.track {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 8px 10px;
+  border: 2px solid var(--paper);
+  background: #000;
+}
+.track-name { font-family: var(--cond); font-size: 16px; letter-spacing: 0.06em; text-transform: uppercase; min-width: 130px; }
+.track-sound { font-size: 12px; color: var(--muted); min-width: 110px; }
+.track .level { display: flex; align-items: center; gap: 6px; font-family: var(--cond); font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; margin-left: auto; }
+.track .level input { width: 130px; }
+.track .level .db { min-width: 58px; font-family: var(--type); text-transform: none; letter-spacing: 0; color: var(--green); font-variant-numeric: tabular-nums; }
+.sel {
+  padding: 5px 8px;
+  background: #000;
+  border: 2px solid var(--paper);
+  color: var(--paper);
+  font-family: var(--type);
+  font-size: 13px;
+  -webkit-appearance: none;
+  appearance: none;
+  min-width: 110px;
+}
 
 /* Grille de notes */
 .grid {
@@ -536,6 +563,9 @@ input[type="range"] { touch-action: pan-y; accent-color: var(--green); }
   .col-head { font-size: 13px; height: 24px; }
   .section-title { flex-wrap: wrap; row-gap: 8px; }
   .section-title .level input { width: 90px; }
+  .section-title #bpm-slider { width: 100%; }
+  .track .level { margin-left: 0; width: 100%; }
+  .track-name { min-width: 0; }
   .piece-name { font-size: 26px; }
   .brand { font-size: 28px; }
   .seg button { padding: 6px 10px 5px; font-size: 12px; }

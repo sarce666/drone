@@ -65,8 +65,26 @@
   const useWav = /^https?:$/.test(location.protocol);
   const hasSample = midi => midi >= SAMPLE_MIN && midi <= SAMPLE_MAX;
   const wavUrl = midi => SAMPLE_DIR + noteName(midi).replace('#', 's') + '.wav';
-  const KICK_URL = 'samples/kick/kick5.wav';
-  const allSampleUrls = () => [...Array.from({ length: SAMPLE_MAX - SAMPLE_MIN + 1 }, (_, i) => wavUrl(SAMPLE_MIN + i)), KICK_URL];
+  // Percussions au tempo : chaque piste a un ou plusieurs sons au choix.
+  const PERC = {
+    kick: { label: 'Grosse caisse', sounds: [{ id: 'kick5', label: 'Kick 5', url: 'samples/kick/kick5.wav' }] },
+    snare: { label: 'Caisse claire', sounds: [{ id: 'birch', label: 'Birch', url: 'samples/snare/birch.wav' }] },
+    cymbal: { label: 'Cymbale', sounds: [
+      { id: 'crash2', label: 'Crash 2', url: 'samples/cymbal/crash2.wav' },
+      { id: 'crash55', label: 'Crash 55', url: 'samples/cymbal/crash55.wav' },
+      { id: 'hmk22', label: 'HMK 22', url: 'samples/cymbal/hmk22.wav' },
+    ] },
+  };
+  const PERC_IDS = Object.keys(PERC);
+  const PATTERNS = [
+    { id: '1/0', label: 'chaque temps', every: 1, offset: 0 },
+    { id: '2/0', label: 'temps 1 et 3', every: 2, offset: 0 },
+    { id: '2/1', label: 'temps 2 et 4', every: 2, offset: 1 },
+    { id: '4/0', label: 'temps 1 sur 4', every: 4, offset: 0 },
+    { id: '4/2', label: 'temps 3 sur 4', every: 4, offset: 2 },
+  ];
+  const percUrls = () => PERC_IDS.flatMap(id => PERC[id].sounds.map(sd => sd.url));
+  const allSampleUrls = () => [...Array.from({ length: SAMPLE_MAX - SAMPLE_MIN + 1 }, (_, i) => wavUrl(SAMPLE_MIN + i)), ...percUrls()];
 
   // ---------- État ----------
   let state = load();
@@ -100,6 +118,22 @@
     return out;
   }
 
+  // p.kick est l'ancien format (grosse caisse seule) ; on le reprend dans rhythm.
+  function normalizeRhythm(r, legacyKick) {
+    const src = r || { bpm: legacyKick?.bpm, tracks: legacyKick ? { kick: { on: legacyKick.on, level: legacyKick.level } } : {} };
+    const tracks = {};
+    for (const id of PERC_IDS) {
+      const t = src.tracks?.[id] || {};
+      tracks[id] = {
+        on: !!t.on,
+        level: clamp(Number(t.level ?? 0.8), 0, 4),
+        sound: PERC[id].sounds.some(sd => sd.id === t.sound) ? t.sound : PERC[id].sounds[0].id,
+        pattern: PATTERNS.some(pt => pt.id === t.pattern) ? t.pattern : '1/0',
+      };
+    }
+    return { bpm: clamp(Math.round(Number(src.bpm) || 80), 30, 240), tracks };
+  }
+
   function normalizePiece(p) {
     return {
       id: p.id || uid(),
@@ -109,11 +143,7 @@
       synthLevel: clamp(Number(p.synthLevel ?? 0.5), 0, 2),   // gain linéaire ; -6 dB par défaut
       sampleLevel: clamp(Number(p.sampleLevel ?? 1), 0, 4),
       mode: MODES.some(m => m.id === p.mode) ? p.mode : 'both',
-      kick: {
-        on: !!p.kick?.on,
-        bpm: clamp(Math.round(Number(p.kick?.bpm) || 80), 30, 240),
-        level: clamp(Number(p.kick?.level ?? 0.8), 0, 4),
-      },
+      rhythm: normalizeRhythm(p.rhythm, p.kick),
       sound: { ...DEFAULT_SOUND, ...(p.sound || {}) },
       sampleSound: { ...DEFAULT_SAMPLE_SOUND, ...(p.sampleSound || {}) },
       updatedAt: Number(p.updatedAt) || 0,
@@ -267,55 +297,84 @@
     }
   }
 
-  // ---------- Grosse caisse au tempo ----------
-  // Planifie chaque frappe sur l'horloge audio (précise), 200 ms en avance.
-  const kick = {
-    buffer: null, loading: null, running: false, bpm: 80, nextBeat: 0, timer: null, gain: null,
+  // ---------- Rythme : percussions au tempo ----------
+  // Un seul compteur de temps ; chaque frappe est planifiée sur l'horloge audio, 200 ms en avance.
+  const rhythm = {
+    buffers: new Map(), // url → AudioBuffer
+    loading: new Map(),
+    running: false, bpm: 80, beat: 0, nextBeat: 0, timer: null,
+    tracks: {},         // id → { on, level, sound, pattern }
+    gains: {},          // id → GainNode
 
     get ctx() { return Tone.getContext().rawContext; },
 
-    load() {
-      if (this.buffer) return Promise.resolve(this.buffer);
-      if (!this.loading) {
-        this.loading = fetch(KICK_URL)
+    load(url) {
+      if (this.buffers.has(url)) return Promise.resolve(this.buffers.get(url));
+      if (!this.loading.has(url)) {
+        this.loading.set(url, fetch(url)
           .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer(); })
           .then(b => new Promise((res, rej) => this.ctx.decodeAudioData(b, res, rej)))
-          .then(buf => { this.buffer = buf; updateCacheStatus(); return buf; })
-          .catch(err => { this.loading = null; console.error('Kick illisible', err); throw err; });
+          .then(buf => { this.buffers.set(url, buf); updateCacheStatus(); return buf; })
+          .catch(err => { this.loading.delete(url); console.error('Percussion illisible', url, err); throw err; }));
       }
-      return this.loading;
+      return this.loading.get(url);
     },
 
-    start(bpm, level) {
-      if (!this.gain) { this.gain = this.ctx.createGain(); Tone.connect(this.gain, engine.master); }
-      this.gain.gain.value = level;
-      this.bpm = bpm;
+    urlFor(id) { return PERC[id].sounds.find(sd => sd.id === this.tracks[id]?.sound)?.url; },
+
+    gain(id) {
+      if (!this.gains[id]) { this.gains[id] = this.ctx.createGain(); Tone.connect(this.gains[id], engine.master); }
+      return this.gains[id];
+    },
+
+    // Applique la configuration du morceau ; démarre ou arrête le compteur selon les pistes actives.
+    apply(cfg) {
+      this.bpm = cfg.bpm;
+      this.tracks = JSON.parse(JSON.stringify(cfg.tracks));
+      const active = PERC_IDS.filter(id => this.tracks[id].on);
+      for (const id of active) {
+        this.gain(id).gain.setTargetAtTime(this.tracks[id].level, this.ctx.currentTime, 0.05);
+        this.load(this.urlFor(id)).catch(() => {});
+      }
+      if (!active.length) { this.stop(); return; }
       if (this.running) return;
       this.running = true;
-      this.load().then(() => {
-        if (!this.running) return;
-        this.nextBeat = this.ctx.currentTime + 0.05;
-        this.tick();
-        this.timer = setInterval(() => this.tick(), 50);
-      }).catch(() => { this.running = false; });
+      this.beat = 0;
+      this.nextBeat = this.ctx.currentTime + 0.05;
+      this.tick();
+      this.timer = setInterval(() => this.tick(), 50);
     },
 
     tick() {
       const now = this.ctx.currentTime;
       if (this.nextBeat < now - 0.5) this.nextBeat = now + 0.02; // l'onglet a été mis en pause
       while (this.nextBeat < now + 0.2) {
-        const src = this.ctx.createBufferSource();
-        src.buffer = this.buffer;
-        src.connect(this.gain);
-        src.start(this.nextBeat);
+        const t = this.nextBeat, beat = this.beat;
+        for (const id of PERC_IDS) {
+          const tr = this.tracks[id];
+          if (!tr?.on) continue;
+          const pat = PATTERNS.find(x => x.id === tr.pattern) || PATTERNS[0];
+          if (beat % pat.every !== pat.offset) continue;
+          const buf = this.buffers.get(this.urlFor(id));
+          if (!buf) continue;
+          const src = this.ctx.createBufferSource();
+          src.buffer = buf;
+          src.connect(this.gain(id));
+          src.start(t);
+        }
         const beatEl = $('#beat');
-        if (beatEl) setTimeout(() => { beatEl.classList.add('hit'); setTimeout(() => beatEl.classList.remove('hit'), 90); }, Math.max(0, (this.nextBeat - now) * 1000));
+        if (beatEl) setTimeout(() => {
+          beatEl.textContent = (beat % 4) + 1;
+          beatEl.classList.add('hit');
+          setTimeout(() => beatEl.classList.remove('hit'), 90);
+        }, Math.max(0, (t - now) * 1000));
+        this.beat = beat + 1;
         this.nextBeat += 60 / this.bpm;
       }
     },
 
     setBpm(bpm) { this.bpm = bpm; },
-    setLevel(level) { if (this.gain) this.gain.gain.setTargetAtTime(level, this.ctx.currentTime, 0.05); },
+    setLevel(id, level) { if (this.gains[id]) this.gains[id].gain.setTargetAtTime(level, this.ctx.currentTime, 0.05); },
 
     stop() {
       this.running = false;
@@ -360,7 +419,7 @@
       this.playing = false;
       for (const midi of [...this.chains.keys()]) this.release(midi);
       for (const midi of [...this.samples.keys()]) this.stopSample(midi);
-      kick.stop();
+      rhythm.stop();
       renderTransport();
       renderList();
     },
@@ -398,7 +457,7 @@
       for (const midi of [...this.samples.keys()]) if (!(midi in wantedS)) this.stopSample(midi);
       if (p) { this.sampleBus.gain.rampTo(p.sampleLevel, 0.2); applyFx(this.sampleFx, p.sampleSound); }
 
-      if (p && p.kick.on) kick.start(p.kick.bpm, p.kick.level); else kick.stop();
+      if (p) rhythm.apply(p.rhythm); else rhythm.stop();
     },
 
     release(midi) {
@@ -653,18 +712,26 @@
       </div>
 
       <div class="section kick">
-        <div class="section-title">Grosse caisse
-          <label class="level">Niveau <input type="range" id="kick-level" min="-36" max="12" step="0.5"><span class="db" id="kick-level-db"></span></label>
+        <div class="section-title">Rythme
           <span class="spacer"></span>
-          <button class="btn small ${p.kick.on ? 'on' : ''}" id="kick-toggle">${p.kick.on ? 'Kick : ON' : 'Kick : OFF'}</button>
-        </div>
-        <div class="kick-row">
-          <span class="beat ${p.kick.on ? '' : 'off'}" id="beat"></span>
+          <span class="beat" id="beat"></span>
           <button class="btn small" id="bpm-minus">−</button>
           <input id="bpm" type="number" min="30" max="240" step="1" inputmode="numeric">
           <button class="btn small" id="bpm-plus">+</button>
           <span class="bpm-label">BPM</span>
           <input id="bpm-slider" type="range" min="30" max="240" step="1">
+        </div>
+        <div class="tracks">
+          ${PERC_IDS.map(id => { const t = p.rhythm.tracks[id]; const def = PERC[id]; return `
+          <div class="track" data-track="${id}">
+            <span class="track-name">${def.label}</span>
+            ${def.sounds.length > 1
+              ? `<select class="sel" data-sound="${id}">${def.sounds.map(sd => `<option value="${sd.id}" ${sd.id === t.sound ? 'selected' : ''}>${sd.label}</option>`).join('')}</select>`
+              : `<span class="track-sound">${def.sounds[0].label}</span>`}
+            <select class="sel" data-pattern="${id}">${PATTERNS.map(pt => `<option value="${pt.id}" ${pt.id === t.pattern ? 'selected' : ''}>${pt.label}</option>`).join('')}</select>
+            <label class="level">Niveau <input type="range" id="level-${id}" min="-36" max="12" step="0.5"><span class="db" id="level-${id}-db"></span></label>
+            <button class="btn small ${t.on ? 'on' : ''}" data-toggle="${id}">${t.on ? 'ON' : 'OFF'}</button>
+          </div>`; }).join('')}
         </div>
       </div>
 
@@ -709,8 +776,10 @@
       b.addEventListener('click', () => { p[b.dataset.clear] = {}; commit(); });
     }
     bindLevel(main, '#synth-level', '#synth-level-db', () => p.synthLevel, v => { p.synthLevel = v; engine.setSynthLevel(v); });
-    bindLevel(main, '#kick-level', '#kick-level-db', () => p.kick.level, v => { p.kick.level = v; kick.setLevel(v); });
-    bindKick(main, p);
+    for (const id of PERC_IDS) {
+      bindLevel(main, '#level-' + id, '#level-' + id + '-db', () => p.rhythm.tracks[id].level, v => { p.rhythm.tracks[id].level = v; rhythm.setLevel(id, v); });
+    }
+    bindRhythm(main, p);
     bindLevel(main, '#sample-level', '#sample-level-db', () => p.sampleLevel, v => { p.sampleLevel = v; engine.setSampleLevel(v); });
 
     for (const kind of KINDS) {
@@ -737,32 +806,46 @@
     slider.addEventListener('dblclick', () => { slider.value = sliderSel.includes('synth') ? -6 : -3; slider.dispatchEvent(new Event('input')); });
   }
 
-  function bindKick(root, p) {
+  function bindRhythm(root, p) {
+    const r = p.rhythm;
     const num = root.querySelector('#bpm');
     const slider = root.querySelector('#bpm-slider');
-    const toggle = root.querySelector('#kick-toggle');
-    const beat = root.querySelector('#beat');
-    const show = () => { num.value = p.kick.bpm; slider.value = p.kick.bpm; };
+    const show = () => { num.value = r.bpm; slider.value = r.bpm; };
     const setBpm = v => {
-      p.kick.bpm = clamp(Math.round(Number(v) || p.kick.bpm), 30, 240);
+      r.bpm = clamp(Math.round(Number(v) || r.bpm), 30, 240);
       show();
-      kick.setBpm(p.kick.bpm);
+      rhythm.setBpm(r.bpm);
       save();
     };
     show();
     num.addEventListener('change', () => setBpm(num.value));
     num.addEventListener('keydown', e => { if (e.key === 'Enter') num.blur(); });
     slider.addEventListener('input', () => setBpm(slider.value));
-    root.querySelector('#bpm-minus').addEventListener('click', () => setBpm(p.kick.bpm - 1));
-    root.querySelector('#bpm-plus').addEventListener('click', () => setBpm(p.kick.bpm + 1));
-    toggle.addEventListener('click', () => {
-      p.kick.on = !p.kick.on;
-      toggle.textContent = p.kick.on ? 'Kick : ON' : 'Kick : OFF';
-      toggle.classList.toggle('on', p.kick.on);
-      beat.classList.toggle('off', !p.kick.on);
-      save();
-      if (p.kick.on && !engine.playing) engine.play(); else engine.sync();
-    });
+    root.querySelector('#bpm-minus').addEventListener('click', () => setBpm(r.bpm - 1));
+    root.querySelector('#bpm-plus').addEventListener('click', () => setBpm(r.bpm + 1));
+
+    const anyOn = () => PERC_IDS.some(id => r.tracks[id].on);
+    const beat = root.querySelector('#beat');
+    beat.classList.toggle('off', !anyOn());
+
+    for (const b of root.querySelectorAll('[data-toggle]')) {
+      const id = b.dataset.toggle;
+      b.addEventListener('click', () => {
+        const t = r.tracks[id];
+        t.on = !t.on;
+        b.textContent = t.on ? 'ON' : 'OFF';
+        b.classList.toggle('on', t.on);
+        beat.classList.toggle('off', !anyOn());
+        save();
+        if (t.on && !engine.playing) engine.play(); else engine.sync();
+      });
+    }
+    for (const sel of root.querySelectorAll('[data-sound]')) {
+      sel.addEventListener('change', () => { r.tracks[sel.dataset.sound].sound = sel.value; save(); engine.sync(); });
+    }
+    for (const sel of root.querySelectorAll('[data-pattern]')) {
+      sel.addEventListener('change', () => { r.tracks[sel.dataset.pattern].pattern = sel.value; save(); engine.sync(); });
+    }
   }
 
   function soundPanel(kind, title) {
