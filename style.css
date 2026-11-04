@@ -200,15 +200,14 @@ input[type="range"] { touch-action: pan-y; accent-color: var(--green); }
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 10px;
-  border-left: 6px solid transparent;
+  padding: 9px 12px;
   cursor: pointer;
   font-family: var(--type);
   color: var(--paper);
 }
 .piece + .piece { border-top: 1px dashed rgba(243, 243, 238, 0.35); }
 .piece:hover { background: var(--purple-deep); }
-.piece.current { border-left-color: var(--green); background: var(--purple-deep); }
+.piece.current { background: var(--purple-deep); outline: 2px solid var(--green); outline-offset: -2px; }
 .piece .swatch {
   width: 10px; height: 10px;
   background: var(--paper);
