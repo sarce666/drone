@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <title>Drones</title>
+  <meta name="description" content="Bibliothèque de drones pour la pratique musicale : synthé et harmonium.">
+  <meta name="theme-color" content="#0e0e10">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Drones">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">Drones</div>
+    <button id="play" class="play" title="Espace : lancer / arrêter">▶ Lancer</button>
+    <label class="ctl">Volume <input id="master" type="range" min="0" max="1" step="0.01"></label>
+    <label class="ctl">La4 = <input id="a4" type="number" min="400" max="480" step="0.5"> Hz</label>
+    <span id="saved" class="saved">Enregistré</span>
+  </header>
+
+  <div class="layout">
+    <aside class="side">
+      <div class="side-head">
+        <h2>Morceaux</h2>
+        <button id="new" class="btn">+ Nouveau</button>
+      </div>
+      <ul id="list" class="list"></ul>
+      <div class="side-foot">
+        <div class="side-row">
+          <button id="export" class="btn ghost">Exporter</button>
+          <button id="import" class="btn ghost">Importer</button>
+          <input id="file" type="file" accept="application/json" hidden>
+        </div>
+        <div class="side-row offline">
+          <button id="cache-all" class="btn ghost">Garder les sons hors ligne</button>
+          <span id="cache-status" class="cache-status"></span>
+        </div>
+      </div>
+    </aside>
+    <main id="main" class="main"></main>
+  </div>
+
+  <div id="toast" class="toast" hidden>
+    <span id="toast-text"></span>
+    <button id="toast-btn" class="btn small">Recharger</button>
+  </div>
+
+  <script src="vendor/Tone.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

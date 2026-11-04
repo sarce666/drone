@@ -1,0 +1,930 @@
+/* Drones — application interne.
+   Pad 1 (synthèse) : moteur repris du Chromatone Drone (https://github.com/chromatone/drone, MIT) :
+   dent de scie → saturation légère → filtre passe-bas auto-modulé → (chorus) → pan/volume
+   avec LFO lents sur le panoramique et le volume, enveloppe 2 s d'attaque / 4 s de relâche.
+   Pad 2 (harmonium) : samples Freesound (pack 29512, CC0) bouclés avec fondu enchaîné. */
+(() => {
+  'use strict';
+
+  const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  const OCTAVES = [5, 4, 3, 2, 1]; // lignes du pad, de haut en bas
+  const MIDI_MIN = 24, MIDI_MAX = 83; // C1 … B5
+  const STORAGE_KEY = 'drones-app-v1';
+  const RELEASE_MS = 4500;
+  const SAMPLE_RELEASE_MS = 2200;
+  const SAMPLE_GAIN = 0.6;
+  const KINDS = ['voices', 'samples'];
+
+  const DEFAULT_SOUND = {
+    cutoff: 16000, q: 0,
+    afRate: 0.1, afDepth: 0,
+    choRate: 0.1, choDepth: 0,
+    drive: 0.1, fat: false,
+  };
+  const DEFAULT_SAMPLE_SOUND = { ...DEFAULT_SOUND, drive: 0, fat: false };
+  const MODES = [
+    { id: 'voices', label: 'Synthé seul' },
+    { id: 'both', label: 'Les deux' },
+    { id: 'samples', label: 'Harmonium seul' },
+  ];
+  const DEFAULTS = { voices: DEFAULT_SOUND, samples: DEFAULT_SAMPLE_SOUND };
+  const SOUND_KEY = { voices: 'sound', samples: 'sampleSound' };
+
+  const SOUND_PARAMS = [
+    { key: 'cutoff', label: 'Brillance (filtre)', min: 100, max: 16000, log: true, fmt: v => Math.round(v) + ' Hz' },
+    { key: 'q', label: 'Résonance', min: 0, max: 20, fmt: v => v.toFixed(1) },
+    { key: 'afRate', label: 'Filtre auto — vitesse', min: 0.1, max: 10, log: true, fmt: v => v.toFixed(2) + ' Hz' },
+    { key: 'afDepth', label: 'Filtre auto — profondeur', min: 0, max: 1, fmt: v => Math.round(v * 100) + ' %' },
+    { key: 'choRate', label: 'Chorus — vitesse', min: 0.1, max: 10, log: true, fmt: v => v.toFixed(2) + ' Hz' },
+    { key: 'choDepth', label: 'Chorus — profondeur', min: 0, max: 1, fmt: v => Math.round(v * 100) + ' %' },
+    { key: 'drive', label: 'Saturation', min: 0, max: 1, fmt: v => Math.round(v * 100) + ' %' },
+  ];
+
+  // ---------- Utilitaires ----------
+  const hue = m => ((((m - 69) % 12) + 12) % 12) * 30; // couleurs Chromatone : La = rouge
+  const noteName = m => NOTES[m % 12] + (Math.floor(m / 12) - 1);
+  const octaveOf = m => Math.floor(m / 12) - 1;
+  // Couleur d'un morceau : sa note la plus grave.
+  const pieceHue = p => {
+    const all = [...Object.keys(p.voices), ...Object.keys(p.samples)].map(Number);
+    return all.length ? hue(Math.min(...all)) : 0;
+  };
+  const freqOf = m => state.a4 * Math.pow(2, (m - 69) / 12);
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  const $ = sel => document.querySelector(sel);
+
+  const normToVal = (n, min, max, log) => (log ? min * Math.pow(max / min, n) : min + n * (max - min));
+  const valToNorm = (v, min, max, log) => (log ? Math.log(v / min) / Math.log(max / min) : (v - min) / (max - min));
+
+  // Banque harmonium : fichiers WAV originaux dans samples/harmonium/, Do2 à Ré5.
+  const SAMPLE_DIR = 'samples/harmonium/';
+  const SAMPLE_MIN = 36, SAMPLE_MAX = 74;
+  const SAMPLE_CACHE = 'drones-samples-v1';
+  const useWav = /^https?:$/.test(location.protocol);
+  const hasSample = midi => midi >= SAMPLE_MIN && midi <= SAMPLE_MAX;
+  const wavUrl = midi => SAMPLE_DIR + noteName(midi).replace('#', 's') + '.wav';
+  const allSampleUrls = () => Array.from({ length: SAMPLE_MAX - SAMPLE_MIN + 1 }, (_, i) => wavUrl(SAMPLE_MIN + i));
+
+  // ---------- État ----------
+  let state = load();
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) return normalize(JSON.parse(raw));
+    } catch (e) { console.warn('Lecture impossible', e); }
+    return normalize({});
+  }
+
+  function normalize(s) {
+    const out = {
+      a4: clamp(Number(s.a4) || 440, 400, 480),
+      master: clamp(Number(s.master ?? 0.5), 0, 1),
+      pieces: Array.isArray(s.pieces) ? s.pieces.map(normalizePiece) : [],
+      currentId: s.currentId || null,
+    };
+    if (!out.pieces.find(p => p.id === out.currentId)) out.currentId = out.pieces[0]?.id || null;
+    return out;
+  }
+
+  function normalizeVoices(src, filter) {
+    const out = {};
+    for (const [k, v] of Object.entries(src || {})) {
+      const midi = Number(k);
+      if (Number.isInteger(midi) && midi >= MIDI_MIN && midi <= MIDI_MAX && filter(midi)) out[midi] = { vol: clamp(Number(v?.vol ?? 0.8), 0.01, 1) };
+    }
+    return out;
+  }
+
+  function normalizePiece(p) {
+    return {
+      id: p.id || uid(),
+      name: String(p.name || 'Sans titre'),
+      voices: normalizeVoices(p.voices, () => true),
+      samples: normalizeVoices(p.samples, hasSample),
+      synthLevel: clamp(Number(p.synthLevel ?? 1), 0, 1),
+      sampleLevel: clamp(Number(p.sampleLevel ?? 0.7), 0, 1),
+      mode: MODES.some(m => m.id === p.mode) ? p.mode : 'both',
+      sound: { ...DEFAULT_SOUND, ...(p.sound || {}) },
+      sampleSound: { ...DEFAULT_SAMPLE_SOUND, ...(p.sampleSound || {}) },
+    };
+  }
+
+  let saveTimer = null;
+  function save(immediate) {
+    clearTimeout(saveTimer);
+    const doSave = () => {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      const el = $('#saved');
+      el.classList.add('show');
+      clearTimeout(el._t);
+      el._t = setTimeout(() => el.classList.remove('show'), 1200);
+    };
+    if (immediate) doSave(); else saveTimer = setTimeout(doSave, 250);
+  }
+
+  const cur = () => state.pieces.find(p => p.id === state.currentId) || null;
+
+  // ---------- Samples : chargement et bouclage ----------
+  const sampleBuffers = new Map(); // midi → Promise<{ buffer, loopStart, loopEnd }>
+  const FADE_N = 64;
+  const FADE_IN = new Float32Array(FADE_N).map((_, i) => Math.sin((i / (FADE_N - 1)) * Math.PI / 2));
+  const FADE_OUT = new Float32Array(FADE_N).map((_, i) => Math.cos((i / (FADE_N - 1)) * Math.PI / 2));
+
+  function loadSample(midi) {
+    if (!sampleBuffers.has(midi)) {
+      const p = (async () => {
+        const r = await fetch(wavUrl(midi));
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const bytes = await r.arrayBuffer();
+        const ctx = Tone.getContext().rawContext;
+        const buffer = await new Promise((res, rej) => ctx.decodeAudioData(bytes, res, rej));
+        updateCacheStatus();
+        return { buffer, ...findLoop(buffer) };
+      })();
+      sampleBuffers.set(midi, p);
+      p.catch(() => sampleBuffers.delete(midi));
+    }
+    return sampleBuffers.get(midi);
+  }
+
+  // Trouve la zone tenue du son (après l'attaque, avant la chute) pour y boucler.
+  function findLoop(buffer) {
+    const data = buffer.getChannelData(0);
+    const win = Math.floor(buffer.sampleRate * 0.05);
+    const rms = [];
+    for (let i = 0; i + win <= data.length; i += win) {
+      let s = 0;
+      for (let j = i; j < i + win; j++) s += data[j] * data[j];
+      rms.push(Math.sqrt(s / win));
+    }
+    const peak = Math.max(...rms);
+    const thr = peak * 0.5;
+    let first = rms.findIndex(v => v > thr);
+    let last = rms.length - 1;
+    while (last > 0 && rms[last] < thr) last--;
+    const dur = buffer.duration;
+    let loopStart = (first * 0.05) + 0.4;
+    let loopEnd = (last * 0.05) - 0.2;
+    if (loopEnd - loopStart < 1.5) { loopStart = dur * 0.2; loopEnd = dur * 0.8; }
+    return { loopStart: clamp(loopStart, 0, dur), loopEnd: clamp(loopEnd, 0, dur) };
+  }
+
+  class SampleVoice {
+    constructor(midi, data, vol) {
+      this.midi = midi;
+      this.data = data;
+      this.ctx = Tone.getContext().rawContext;
+      this.out = this.ctx.createGain();
+      this.out.gain.value = 0;
+      this.meter = new Tone.Meter({ normalRange: true, smoothing: 0.85 });
+      Tone.connect(this.out, engine.sampleFx.dist);
+      Tone.connect(this.out, this.meter);
+      this.sources = new Set();
+      this.first = true;
+      this.next = this.ctx.currentTime + 0.05;
+      const t = this.ctx.currentTime;
+      this.out.gain.setValueAtTime(0, t);
+      this.out.gain.linearRampToValueAtTime(vol * SAMPLE_GAIN, t + 1);
+      this.schedule();
+      this.timer = setInterval(() => this.schedule(), 400);
+    }
+
+    // Enchaîne des segments de la zone tenue avec fondu enchaîné : boucle sans clic.
+    schedule() {
+      const { loopStart, loopEnd, buffer } = this.data;
+      const rate = state.a4 / 440;
+      while (this.next < this.ctx.currentTime + 1.5) {
+        const offset = this.first ? 0 : loopStart;
+        const len = (loopEnd - offset) / rate;
+        const xf = Math.min(1.2, (loopEnd - loopStart) / rate / 3);
+        const t = this.next;
+        const src = this.ctx.createBufferSource();
+        src.buffer = buffer;
+        src.playbackRate.value = rate;
+        const g = this.ctx.createGain();
+        if (this.first) g.gain.setValueAtTime(1, t);
+        else { g.gain.setValueAtTime(0, t); g.gain.setValueCurveAtTime(FADE_IN, t, xf); }
+        g.gain.setValueAtTime(1, t + len - xf);
+        g.gain.setValueCurveAtTime(FADE_OUT, t + len - xf, xf);
+        src.connect(g).connect(this.out);
+        src.start(t, offset);
+        src.stop(t + len + 0.05);
+        src.onended = () => { this.sources.delete(src); g.disconnect(); };
+        this.sources.add(src);
+        this.next = t + len - xf;
+        this.first = false;
+      }
+    }
+
+    setVolume(vol) {
+      this.out.gain.setTargetAtTime(vol * SAMPLE_GAIN, this.ctx.currentTime, 0.1);
+    }
+
+    retune() {
+      const rate = state.a4 / 440;
+      for (const s of this.sources) s.playbackRate.setTargetAtTime(rate, this.ctx.currentTime, 0.1);
+    }
+
+    stop() {
+      clearInterval(this.timer);
+      const t = this.ctx.currentTime;
+      this.out.gain.cancelScheduledValues(t);
+      this.out.gain.setValueAtTime(this.out.gain.value, t);
+      this.out.gain.linearRampToValueAtTime(0, t + SAMPLE_RELEASE_MS / 1000 - 0.2);
+      setTimeout(() => {
+        for (const s of this.sources) { try { s.stop(); } catch (e) { /* ignore */ } }
+        this.out.disconnect();
+        this.meter.dispose();
+      }, SAMPLE_RELEASE_MS);
+    }
+  }
+
+  // ---------- Moteur audio ----------
+  const engine = {
+    ready: false,
+    playing: false,
+    master: null,
+    synthBus: null,
+    sampleBus: null,
+    sampleFx: null,      // effets partagés du pad harmonium
+    chains: new Map(),   // pad synthé : midi → chaîne Tone
+    samples: new Map(),  // pad harmonium : midi → SampleVoice (ou { loading: true, vol })
+    fading: new Map(),   // voix en cours de relâche (encore mesurées pour la lueur)
+
+    async ensure() {
+      if (this.ready) return;
+      if (typeof Tone === 'undefined') { alert('Tone.js introuvable (vendor/Tone.js).'); throw new Error('Tone missing'); }
+      await Tone.start();
+      this.master = new Tone.Gain(state.master).toDestination();
+      this.synthBus = new Tone.Gain(cur()?.synthLevel ?? 1).connect(this.master);
+      this.sampleBus = new Tone.Gain(cur()?.sampleLevel ?? 0.7).connect(this.master);
+      this.sampleFx = makeFx(this.sampleBus, cur()?.sampleSound || DEFAULT_SAMPLE_SOUND);
+      this.ready = true;
+      meterLoop();
+    },
+
+    async play() {
+      await this.ensure();
+      this.playing = true;
+      this.sync();
+      renderTransport();
+      renderList();
+    },
+
+    stop() {
+      this.playing = false;
+      for (const midi of [...this.chains.keys()]) this.release(midi);
+      for (const midi of [...this.samples.keys()]) this.stopSample(midi);
+      renderTransport();
+      renderList();
+    },
+
+    toggle() { this.playing ? this.stop() : this.play(); },
+
+    // Aligne ce qui sonne sur le morceau courant.
+    sync() {
+      const p = cur();
+      if (!this.playing || !this.ready) return;
+
+      const wanted = p && p.mode !== 'samples' ? p.voices : {};
+      for (const [midiStr, v] of Object.entries(wanted)) {
+        const midi = Number(midiStr);
+        let c = this.chains.get(midi);
+        if (!c) {
+          c = makeChain(midi, v.vol, p.sound);
+          this.chains.set(midi, c);
+          c.synth.triggerAttack(freqOf(midi));
+        } else {
+          c.synth.volume.rampTo(Tone.gainToDb(v.vol) - 10, 0.4);
+        }
+      }
+      for (const midi of [...this.chains.keys()]) if (!(midi in wanted)) this.release(midi);
+      if (p) { applySound(p.sound); this.synthBus.gain.rampTo(p.synthLevel, 0.2); }
+
+      const wantedS = p && p.mode !== 'voices' ? p.samples : {};
+      for (const [midiStr, v] of Object.entries(wantedS)) {
+        const midi = Number(midiStr);
+        const sv = this.samples.get(midi);
+        if (!sv) this.startSample(midi, v.vol);
+        else if (sv.loading) sv.vol = v.vol;
+        else sv.setVolume(v.vol);
+      }
+      for (const midi of [...this.samples.keys()]) if (!(midi in wantedS)) this.stopSample(midi);
+      if (p) { this.sampleBus.gain.rampTo(p.sampleLevel, 0.2); applyFx(this.sampleFx, p.sampleSound); }
+    },
+
+    release(midi) {
+      const c = this.chains.get(midi);
+      if (!c) return;
+      this.chains.delete(midi);
+      this.fading.set(c, { kind: 'voices', midi });
+      c.synth.triggerRelease();
+      setTimeout(() => {
+        this.fading.delete(c);
+        cellEls.voices.get(midi)?.style.setProperty('--lvl', 0);
+        for (const node of [c.synth, c.dist, c.autoFilter, c.chorus, c.lfoPan, c.lfoVol, c.panner, c.meter]) {
+          try { node?.dispose(); } catch (e) { /* ignore */ }
+        }
+      }, RELEASE_MS);
+    },
+
+    startSample(midi, vol) {
+      const token = { loading: true, vol };
+      this.samples.set(midi, token);
+      updateCell('samples', midi, cur());
+      loadSample(midi).then(data => {
+        if (this.samples.get(midi) !== token) return; // éteint entre-temps
+        this.samples.set(midi, new SampleVoice(midi, data, token.vol));
+        updateCell('samples', midi, cur());
+      }).catch(err => {
+        console.error('Sample illisible', noteName(midi), err);
+        if (this.samples.get(midi) === token) this.samples.delete(midi);
+        updateCell('samples', midi, cur());
+      });
+    },
+
+    stopSample(midi) {
+      const sv = this.samples.get(midi);
+      if (!sv) return;
+      this.samples.delete(midi);
+      if (sv.loading) return;
+      this.fading.set(sv, { kind: 'samples', midi });
+      sv.stop();
+      setTimeout(() => {
+        this.fading.delete(sv);
+        cellEls.samples.get(midi)?.style.setProperty('--lvl', 0);
+      }, SAMPLE_RELEASE_MS);
+    },
+
+    setVoiceVolume(kind, midi, vol) {
+      if (kind === 'voices') {
+        const c = this.chains.get(midi);
+        if (c) c.synth.volume.rampTo(Tone.gainToDb(vol) - 10, 0.1);
+      } else {
+        const sv = this.samples.get(midi);
+        if (sv?.loading) sv.vol = vol; else sv?.setVolume(vol);
+      }
+    },
+
+    setSampleLevel(v) {
+      if (this.sampleBus) this.sampleBus.gain.rampTo(v, 0.2);
+    },
+
+    setSynthLevel(v) {
+      if (this.synthBus) this.synthBus.gain.rampTo(v, 0.2);
+    },
+
+    retune() {
+      for (const [midi, c] of this.chains) c.synth.frequency.rampTo(freqOf(midi), 0.3);
+      for (const sv of this.samples.values()) sv.retune?.();
+    },
+
+    setMaster(v) {
+      if (this.master) this.master.gain.rampTo(v, 0.2);
+    },
+  };
+
+  function oscillatorOptions(sound) {
+    return sound.fat ? { type: 'fatsawtooth', count: 2, spread: 20 } : { type: 'sawtooth' };
+  }
+
+  function makeChain(midi, vol, sound) {
+    const c = { midi };
+    c.meter = new Tone.Meter({ normalRange: true, smoothing: 0.85 });
+    c.panner = new Tone.PanVol({ pan: 0, volume: 0 }).connect(engine.synthBus);
+    c.panner.connect(c.meter);
+    // Mouvement lent et aléatoire du panoramique et du volume, comme sur le site.
+    c.lfoPan = new Tone.LFO(Math.random() * 0.5 + 0.01, -0.25, 0.25).connect(c.panner.pan).start();
+    c.lfoVol = new Tone.LFO(Math.random() * 0.1 + 0.001, -20, 0).connect(c.panner.volume).start();
+    Object.assign(c, makeFx(c.panner, sound));
+    c.synth = new Tone.Synth({
+      envelope: { attack: 2, decay: 0.1, sustain: 1, release: 4 },
+      oscillator: oscillatorOptions(sound),
+      volume: Tone.gainToDb(vol) - 10,
+    }).connect(c.dist);
+    return c;
+  }
+
+  // Chaîne d'effets : saturation → filtre auto → (chorus) → sortie. Entrée : fx.dist.
+  function makeFx(out, sound) {
+    const fx = { out, chorus: null };
+    fx.autoFilter = new Tone.AutoFilter({
+      frequency: sound.afRate,
+      depth: sound.afDepth,
+      baseFrequency: sound.cutoff,
+      filter: { type: 'lowpass', rolloff: -12, Q: sound.q },
+      wet: 1,
+    }).connect(out).start();
+    fx.dist = new Tone.Distortion({ distortion: sound.drive, oversample: '2x' }).connect(fx.autoFilter);
+    if (sound.choDepth > 0) insertChorus(fx, sound);
+    return fx;
+  }
+
+  function insertChorus(fx, sound) {
+    fx.autoFilter.disconnect();
+    fx.chorus = new Tone.Chorus({ frequency: sound.choRate, depth: sound.choDepth, spread: 180, wet: 0.5 })
+      .connect(fx.out).start();
+    fx.autoFilter.connect(fx.chorus);
+  }
+
+  function removeChorus(fx) {
+    fx.autoFilter.disconnect();
+    fx.chorus.dispose();
+    fx.chorus = null;
+    fx.autoFilter.connect(fx.out);
+  }
+
+  function applyFx(fx, sound) {
+    fx.autoFilter.baseFrequency = sound.cutoff;
+    fx.autoFilter.filter.Q.rampTo(sound.q, 0.1);
+    fx.autoFilter.frequency.value = sound.afRate;
+    fx.autoFilter.depth.value = sound.afDepth;
+    fx.dist.distortion = sound.drive;
+    if (sound.choDepth > 0 && !fx.chorus) insertChorus(fx, sound);
+    else if (sound.choDepth > 0 && fx.chorus) { fx.chorus.frequency.value = sound.choRate; fx.chorus.depth = sound.choDepth; }
+    else if (sound.choDepth === 0 && fx.chorus) removeChorus(fx);
+  }
+
+  function applySound(sound) {
+    for (const c of engine.chains.values()) {
+      applyFx(c, sound);
+      const wantType = oscillatorOptions(sound).type;
+      if (c.synth.oscillator.type !== wantType) swapSynth(c, sound);
+    }
+  }
+
+  function applyKindSound(kind, p) {
+    if (!engine.ready) return;
+    if (kind === 'voices') applySound(p.sound);
+    else applyFx(engine.sampleFx, p.sampleSound);
+  }
+
+  // Changer « épaisseur » demande un nouvel oscillateur : on fond l'ancien dans le nouveau.
+  function swapSynth(c, sound) {
+    const old = c.synth;
+    const vol = old.volume.value;
+    c.synth = new Tone.Synth({
+      envelope: { attack: 2, decay: 0.1, sustain: 1, release: 4 },
+      oscillator: oscillatorOptions(sound),
+      volume: vol,
+    }).connect(c.dist);
+    c.synth.triggerAttack(freqOf(c.midi));
+    old.triggerRelease();
+    setTimeout(() => { try { old.dispose(); } catch (e) { /* ignore */ } }, RELEASE_MS);
+  }
+
+  function meterLoop() {
+    const paint = (kind, midi, meter) => {
+      const el = cellEls[kind].get(midi);
+      if (el) el.style.setProperty('--lvl', clamp(meter.getValue() * 3, 0, 1).toFixed(3));
+    };
+    const tick = () => {
+      for (const [midi, c] of engine.chains) paint('voices', midi, c.meter);
+      for (const [midi, sv] of engine.samples) if (!sv.loading) paint('samples', midi, sv.meter);
+      for (const [obj, { kind, midi }] of engine.fading) {
+        const live = kind === 'voices' ? engine.chains : engine.samples;
+        if (!live.has(midi)) paint(kind, midi, obj.meter);
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+
+  // ---------- Rendu ----------
+  const cellEls = { voices: new Map(), samples: new Map() };
+
+  function renderAll() {
+    const p = cur();
+    document.documentElement.style.setProperty('--hue', p ? pieceHue(p) : 0);
+    renderTransport();
+    renderList();
+    renderMain();
+  }
+
+  function renderTransport() {
+    const b = $('#play');
+    b.textContent = engine.playing ? '■ Arrêter' : '▶ Lancer';
+    b.classList.toggle('on', engine.playing);
+    $('#master').value = state.master;
+    $('#a4').value = state.a4;
+  }
+
+  function renderList() {
+    const ul = $('#list');
+    ul.innerHTML = '';
+    if (!state.pieces.length) {
+      ul.innerHTML = '<li class="empty-list">Aucun morceau. Cliquez sur « + Nouveau ».</li>';
+      return;
+    }
+    for (const p of state.pieces) {
+      const li = document.createElement('li');
+      li.className = 'piece' + (p.id === state.currentId ? ' current' : '');
+      li.style.setProperty('--h', pieceHue(p));
+      const n = Object.keys(p.voices).length + Object.keys(p.samples).length;
+      li.innerHTML = `<span class="swatch"></span><span class="name"></span>` +
+        `<span class="meta">${n} ${n > 1 ? 'notes' : 'note'}</span>` +
+        (engine.playing && p.id === state.currentId ? '<span class="playing">▶</span>' : '');
+      li.querySelector('.name').textContent = p.name;
+      li.title = 'Cliquer pour lancer ce drone';
+      li.addEventListener('click', () => selectAndPlay(p.id));
+      ul.appendChild(li);
+    }
+  }
+
+  function clearButton(kind) {
+    return `<button class="btn small ghost" data-clear="${kind}">Tout éteindre</button>`;
+  }
+
+  function renderMain() {
+    const main = $('#main');
+    const p = cur();
+    cellEls.voices.clear();
+    cellEls.samples.clear();
+    if (!p) {
+      main.innerHTML = `<div class="welcome"><h1>Drones</h1>
+        <p>Créez un morceau, choisissez sa tonique, touchez les notes qui doivent sonner, et c'est enregistré.
+        Ensuite, un clic sur le morceau dans la liste lance son drone.</p>
+        <p><button class="btn" id="welcome-new">+ Nouveau morceau</button></p></div>`;
+      main.querySelector('#welcome-new').addEventListener('click', newPiece);
+      return;
+    }
+
+    main.innerHTML = `
+      <div class="piece-head">
+        <input class="piece-name" id="piece-name" spellcheck="false" placeholder="Nom du morceau">
+        <div class="actions">
+          <button class="btn small" id="dup">Dupliquer</button>
+          <button class="btn small danger" id="del">Supprimer</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="seg" id="mode">
+          ${MODES.map(m => `<button data-mode="${m.id}" class="${p.mode === m.id ? 'on' : ''}">${m.label}</button>`).join('')}
+        </div>
+      </div>
+
+      ${p.mode !== 'samples' ? `
+      <div class="section pad">
+        <div class="section-title">Pad 1 — Synthé
+          <label class="level">Niveau <input type="range" id="synth-level" min="0" max="1" step="0.01"></label>
+          <span class="spacer"></span>
+          ${clearButton('voices')}
+        </div>
+        <div class="grid" id="grid-voices"></div>
+        <div class="hint">Toucher une note l'allume ou l'éteint. Glisser verticalement (ou molette) règle son volume.</div>
+        ${soundPanel('voices', 'Son du synthé')}
+      </div>` : ''}
+
+      ${p.mode !== 'voices' ? `
+      <div class="section pad">
+        <div class="section-title">Pad 2 — Harmonium
+          <label class="level">Niveau <input type="range" id="sample-level" min="0" max="1" step="0.01"></label>
+          <span class="spacer"></span>
+          ${clearButton('samples')}
+        </div>
+        <div class="grid" id="grid-samples"></div>
+        <div class="hint">Vrai harmonium (Do2 à Ré5) enregistré par donyaquick, découpé par cabled_mess · Freesound, CC0 · WAV 96 kHz. Les notes grisées n'existent pas dans la banque.${useWav ? '' : ' <b>Ouvrez l\'app via un serveur (http) ou la version installée : en ouverture directe du fichier, les samples ne peuvent pas être lus.</b>'}</div>
+        ${soundPanel('samples', "Son de l'harmonium")}
+      </div>` : ''}`;
+
+    const nameInput = main.querySelector('#piece-name');
+    nameInput.value = p.name;
+    nameInput.addEventListener('input', () => { p.name = nameInput.value; save(); renderList(); });
+    nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') nameInput.blur(); });
+
+    main.querySelector('#dup').addEventListener('click', () => duplicatePiece(p));
+    main.querySelector('#del').addEventListener('click', () => deletePiece(p));
+    for (const b of main.querySelectorAll('[data-mode]')) {
+      b.addEventListener('click', () => { p.mode = b.dataset.mode; commit(); });
+    }
+    for (const b of main.querySelectorAll('[data-reset]')) {
+      b.addEventListener('click', e => { e.preventDefault(); p[SOUND_KEY[b.dataset.reset]] = { ...DEFAULTS[b.dataset.reset] }; commit(); });
+    }
+    for (const b of main.querySelectorAll('[data-clear]')) {
+      b.addEventListener('click', () => { p[b.dataset.clear] = {}; commit(); });
+    }
+    const synthLevel = main.querySelector('#synth-level');
+    if (synthLevel) {
+      synthLevel.value = p.synthLevel;
+      synthLevel.addEventListener('input', () => { p.synthLevel = Number(synthLevel.value); engine.setSynthLevel(p.synthLevel); save(); });
+    }
+    const level = main.querySelector('#sample-level');
+    if (level) {
+      level.value = p.sampleLevel;
+      level.addEventListener('input', () => { p.sampleLevel = Number(level.value); engine.setSampleLevel(p.sampleLevel); save(); });
+    }
+
+    for (const kind of KINDS) {
+      if ($('#grid-' + kind)) { renderGrid(kind, p); renderSound(kind, p); }
+    }
+  }
+
+  function soundPanel(kind, title) {
+    return `<details class="sound-box" open>
+      <summary>${title}
+        <button class="btn small ghost" data-reset="${kind}">Son par défaut</button>
+      </summary>
+      <div class="sound" id="sound-${kind}"></div>
+    </details>`;
+  }
+
+  function renderGrid(kind, p) {
+    const grid = $('#grid-' + kind);
+    grid.innerHTML = '';
+    // En-tête : les 12 notes de base.
+    const corner = document.createElement('div');
+    corner.className = 'row-label';
+    grid.appendChild(corner);
+    NOTES.forEach((n, i) => {
+      const h = document.createElement('div');
+      h.className = 'col-head';
+      h.style.setProperty('--h', hue(i));
+      h.textContent = n;
+      grid.appendChild(h);
+    });
+    // Une ligne par octave, toutes les notes jouables.
+    for (const oct of OCTAVES) {
+      const lab = document.createElement('div');
+      lab.className = 'row-label';
+      lab.textContent = 'Octave ' + oct;
+      grid.appendChild(lab);
+      for (let i = 0; i < 12; i++) {
+        const midi = (oct + 1) * 12 + i;
+        const el = document.createElement('button');
+        el.className = 'cell';
+        el.dataset.midi = midi;
+        el.style.setProperty('--h', hue(midi));
+        el.innerHTML = `<div class="vol"></div><div class="note">${noteName(midi)}</div>`;
+        if (kind === 'samples' && !hasSample(midi)) {
+          el.classList.add('na');
+          el.disabled = true;
+        } else {
+          attachCellGestures(el, kind, midi, p);
+        }
+        grid.appendChild(el);
+        cellEls[kind].set(midi, el);
+        updateCell(kind, midi, p);
+      }
+    }
+  }
+
+  function updateCell(kind, midi, p) {
+    const el = cellEls[kind].get(midi);
+    if (!el || !p) return;
+    const v = p[kind][midi];
+    el.classList.toggle('on', !!v);
+    el.classList.toggle('loading', kind === 'samples' && !!engine.samples.get(midi)?.loading);
+    el.style.setProperty('--vol', v ? v.vol : 0);
+    el.title = el.classList.contains('na') ? `${noteName(midi)} · pas dans la banque`
+      : v ? `${noteName(midi)} · volume ${Math.round(v.vol * 100)} %` : noteName(midi);
+  }
+
+  function attachCellGestures(el, kind, midi, p) {
+    let startY = 0, startVol = 0, dragging = false, pointerId = null;
+    el.addEventListener('pointerdown', e => {
+      pointerId = e.pointerId;
+      startY = e.clientY;
+      startVol = p[kind][midi]?.vol ?? 0.8;
+      dragging = false;
+      el.setPointerCapture(e.pointerId);
+    });
+    el.addEventListener('pointermove', e => {
+      if (e.pointerId !== pointerId) return;
+      const dy = startY - e.clientY;
+      if (!dragging && Math.abs(dy) < 5) return;
+      dragging = true;
+      if (!p[kind][midi]) setVoice(p, kind, midi, true, startVol);
+      setVolume(p, kind, midi, clamp(startVol + dy / 150, 0.01, 1));
+    });
+    const end = e => {
+      if (e.pointerId !== pointerId) return;
+      pointerId = null;
+      if (!dragging) setVoice(p, kind, midi, !p[kind][midi]);
+      else save();
+    };
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
+    el.addEventListener('wheel', e => {
+      if (!p[kind][midi]) return;
+      e.preventDefault();
+      setVolume(p, kind, midi, clamp(p[kind][midi].vol - e.deltaY / 600, 0.01, 1));
+      save();
+    }, { passive: false });
+  }
+
+  function renderSound(kind, p) {
+    const box = $('#sound-' + kind);
+    const sound = p[SOUND_KEY[kind]];
+    const defaults = DEFAULTS[kind];
+    box.innerHTML = '';
+    for (const sp of SOUND_PARAMS) {
+      const wrap = document.createElement('label');
+      wrap.className = 'param';
+      wrap.innerHTML = `<div class="lbl"><span>${sp.label}</span><span class="val"></span></div>
+        <input type="range" min="0" max="1000" step="1">`;
+      const input = wrap.querySelector('input');
+      const val = wrap.querySelector('.val');
+      const show = () => { val.textContent = sp.fmt(sound[sp.key]); };
+      input.value = Math.round(valToNorm(sound[sp.key], sp.min, sp.max, sp.log) * 1000);
+      show();
+      input.addEventListener('input', () => {
+        sound[sp.key] = normToVal(input.value / 1000, sp.min, sp.max, sp.log);
+        show();
+        applyKindSound(kind, p);
+        save();
+      });
+      input.addEventListener('dblclick', () => {
+        sound[sp.key] = defaults[sp.key];
+        input.value = Math.round(valToNorm(sound[sp.key], sp.min, sp.max, sp.log) * 1000);
+        show(); applyKindSound(kind, p); save();
+      });
+      box.appendChild(wrap);
+    }
+    if (kind === 'voices') {
+      const fat = document.createElement('label');
+      fat.className = 'param check';
+      fat.innerHTML = `<input type="checkbox"><span>Épaisseur (2 oscillateurs désaccordés)</span>`;
+      const cb = fat.querySelector('input');
+      cb.checked = !!sound.fat;
+      cb.addEventListener('change', () => { sound.fat = cb.checked; applyKindSound(kind, p); save(); });
+      box.appendChild(fat);
+    }
+  }
+
+  // ---------- Actions ----------
+  function commit() {
+    save();
+    renderAll();
+    engine.sync();
+  }
+
+  function setVoice(p, kind, midi, on, vol = 0.8) {
+    if (on) p[kind][midi] = { vol: p[kind][midi]?.vol ?? vol };
+    else delete p[kind][midi];
+    updateCell(kind, midi, p);
+    save();
+    renderList();
+    if (on && !engine.playing) engine.play(); // allumer une note lance le drone
+    else engine.sync();
+  }
+
+  function setVolume(p, kind, midi, vol) {
+    if (!p[kind][midi]) return;
+    p[kind][midi].vol = vol;
+    updateCell(kind, midi, p);
+    engine.setVoiceVolume(kind, midi, vol);
+  }
+
+  function newPiece() {
+    const n = state.pieces.length + 1;
+    const p = normalizePiece({ name: `Morceau ${n}`, voices: { 45: { vol: 0.8 } } });
+    state.pieces.push(p);
+    state.currentId = p.id;
+    engine.stop();
+    commit();
+    $('#piece-name')?.focus();
+    $('#piece-name')?.select();
+  }
+
+  function duplicatePiece(p) {
+    const copy = normalizePiece(JSON.parse(JSON.stringify({ ...p, id: null, name: p.name + ' (copie)' })));
+    state.pieces.splice(state.pieces.indexOf(p) + 1, 0, copy);
+    state.currentId = copy.id;
+    commit();
+  }
+
+  function deletePiece(p) {
+    if (!confirm(`Supprimer « ${p.name} » ?`)) return;
+    const idx = state.pieces.indexOf(p);
+    state.pieces.splice(idx, 1);
+    state.currentId = (state.pieces[idx] || state.pieces[idx - 1])?.id || null;
+    commit();
+  }
+
+  function selectAndPlay(id) {
+    if (state.currentId !== id) {
+      state.currentId = id;
+      save();
+      renderAll();
+    }
+    engine.play();
+  }
+
+  function exportJson() {
+    const blob = new Blob([JSON.stringify({ pieces: state.pieces, a4: state.a4 }, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `drones-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  function importJson(file) {
+    const r = new FileReader();
+    r.onload = () => {
+      try {
+        const data = JSON.parse(r.result);
+        const pieces = (Array.isArray(data) ? data : data.pieces || []).map(x => normalizePiece({ ...x, id: null }));
+        if (!pieces.length) throw new Error('vide');
+        state.pieces.push(...pieces);
+        state.currentId = pieces[0].id;
+        commit();
+      } catch (e) {
+        alert('Fichier non reconnu.');
+      }
+    };
+    r.readAsText(file);
+  }
+
+  // ---------- Branchements globaux ----------
+  $('#play').addEventListener('click', () => engine.toggle());
+  $('#new').addEventListener('click', newPiece);
+  $('#export').addEventListener('click', exportJson);
+  $('#import').addEventListener('click', () => $('#file').click());
+  $('#file').addEventListener('change', e => { if (e.target.files[0]) importJson(e.target.files[0]); e.target.value = ''; });
+  $('#master').addEventListener('input', e => { state.master = Number(e.target.value); engine.setMaster(state.master); save(); });
+  $('#a4').addEventListener('change', e => {
+    state.a4 = clamp(Number(e.target.value) || 440, 400, 480);
+    e.target.value = state.a4;
+    engine.retune(); save();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.code === 'Space' && !/INPUT|TEXTAREA/.test(document.activeElement?.tagName || '')) {
+      e.preventDefault();
+      engine.toggle();
+    }
+  });
+
+  // ---------- Hors ligne (PWA) ----------
+  function showToast(text, btnLabel, onClick) {
+    const t = $('#toast');
+    $('#toast-text').textContent = text;
+    const b = $('#toast-btn');
+    b.textContent = btnLabel;
+    b.onclick = onClick;
+    t.hidden = false;
+  }
+
+  async function updateCacheStatus() {
+    const el = $('#cache-status');
+    if (!('caches' in window) || !useWav) { el.textContent = ''; return; }
+    try {
+      const cache = await caches.open(SAMPLE_CACHE);
+      const keys = await cache.keys();
+      const have = new Set(keys.map(r => new URL(r.url).pathname.split('/').pop()));
+      const n = allSampleUrls().filter(u => have.has(u.split('/').pop())).length;
+      const total = allSampleUrls().length;
+      el.textContent = n === total ? `${total}/${total} sons disponibles hors ligne` : `${n}/${total} sons hors ligne`;
+      $('#cache-all').hidden = n === total;
+    } catch (e) { el.textContent = ''; }
+  }
+
+  async function cacheAllSamples() {
+    const btn = $('#cache-all');
+    const el = $('#cache-status');
+    btn.disabled = true;
+    try {
+      const cache = await caches.open(SAMPLE_CACHE);
+      const urls = allSampleUrls();
+      let done = 0;
+      for (const u of urls) {
+        if (!(await cache.match(u))) {
+          const r = await fetch(u);
+          if (!r.ok) throw new Error(u);
+          await cache.put(u, r);
+        }
+        done++;
+        el.textContent = `Téléchargement ${done}/${urls.length}…`;
+      }
+    } catch (e) {
+      el.textContent = 'Échec du téléchargement, réessayez.';
+    }
+    btn.disabled = false;
+    updateCacheStatus();
+  }
+
+  function registerServiceWorker() {
+    if (!('serviceWorker' in navigator) || !useWav) return;
+    navigator.serviceWorker.register('sw.js').then(reg => {
+      reg.addEventListener('updatefound', () => {
+        const w = reg.installing;
+        if (!w) return;
+        w.addEventListener('statechange', () => {
+          if (w.state === 'installed' && navigator.serviceWorker.controller) {
+            showToast('Nouvelle version disponible.', 'Recharger', () => location.reload());
+          }
+        });
+      });
+    }).catch(err => console.warn('Service worker non enregistré', err));
+    navigator.storage?.persist?.();
+  }
+
+  $('#cache-all').addEventListener('click', cacheAllSamples);
+  registerServiceWorker();
+  updateCacheStatus();
+
+  renderAll();
+})();
