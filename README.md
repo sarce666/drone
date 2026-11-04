@@ -53,4 +53,22 @@ affichent « Nouvelle version disponible » à leur prochaine ouverture. Dépôt
 - **Barre du haut** : lancer / arrêter (ou barre d'espace), volume général, référence du La4.
 - **Exporter / Importer** : sauvegarde et restauration de tous les morceaux en JSON.
 
-Les données sont enregistrées dans le `localStorage` du navigateur.
+Les morceaux sont enregistrés sur l'appareil (`localStorage`).
+
+## Synchronisation entre appareils
+
+Optionnelle. L'app peut enregistrer les morceaux dans un fichier `morceaux.json` d'un dépôt GitHub à vous
+(privé de préférence) et les récupérer sur chaque appareil dès qu'il y a du réseau. Hors ligne, tout continue de
+fonctionner ; la synchronisation repart au retour du réseau, à l'ouverture de l'app, ou avec « Synchroniser
+maintenant ». Fusion par morceau : la version modifiée en dernier gagne.
+
+Mise en place, une fois :
+
+1. Sur GitHub, créer un dépôt **privé**, par exemple `drone-data` (vide, sans README).
+2. Créer un jeton d'accès : GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens →
+   Generate new token. Nom libre, expiration au choix, « Only select repositories » → `drone-data`,
+   Permissions → Repository permissions → **Contents : Read and write**. Copier le jeton.
+3. Dans l'app, colonne de gauche, ouvrir « Synchronisation non configurée », saisir le dépôt (`sarce666/drone-data`)
+   et le jeton, puis « Enregistrer ». À faire sur chaque appareil.
+
+Le jeton reste dans l'app, sur l'appareil ; il ne donne accès qu'à ce dépôt.

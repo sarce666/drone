@@ -82,6 +82,7 @@
       a4: clamp(Number(s.a4) || 440, 400, 480),
       master: clamp(Number(s.master ?? 0.5), 0, 1),
       pieces: Array.isArray(s.pieces) ? s.pieces.map(normalizePiece) : [],
+      deleted: (s.deleted && typeof s.deleted === 'object') ? s.deleted : {}, // id → date de suppression
       currentId: s.currentId || null,
     };
     if (!out.pieces.find(p => p.id === out.currentId)) out.currentId = out.pieces[0]?.id || null;
@@ -108,14 +109,25 @@
       mode: MODES.some(m => m.id === p.mode) ? p.mode : 'both',
       sound: { ...DEFAULT_SOUND, ...(p.sound || {}) },
       sampleSound: { ...DEFAULT_SAMPLE_SOUND, ...(p.sampleSound || {}) },
+      updatedAt: Number(p.updatedAt) || 0,
     };
   }
+
+  // Empreinte d'un morceau (hors horodatage) pour détecter ce qui a changé.
+  const pieceHash = p => JSON.stringify({ ...p, updatedAt: 0 });
+  const hashes = new Map(state.pieces.map(p => [p.id, pieceHash(p)]));
 
   let saveTimer = null;
   function save(immediate) {
     clearTimeout(saveTimer);
     const doSave = () => {
+      let changed = false;
+      for (const p of state.pieces) {
+        const h = pieceHash(p);
+        if (hashes.get(p.id) !== h) { hashes.set(p.id, h); p.updatedAt = Date.now(); changed = true; }
+      }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      if (changed) sync.schedule();
       const el = $('#saved');
       el.classList.add('show');
       clearTimeout(el._t);
@@ -800,8 +812,11 @@
     if (!confirm(`Supprimer « ${p.name} » ?`)) return;
     const idx = state.pieces.indexOf(p);
     state.pieces.splice(idx, 1);
+    state.deleted[p.id] = Date.now();
+    hashes.delete(p.id);
     state.currentId = (state.pieces[idx] || state.pieces[idx - 1])?.id || null;
     commit();
+    sync.schedule();
   }
 
   function selectAndPlay(id) {
@@ -857,6 +872,166 @@
       engine.toggle();
     }
   });
+
+  // ---------- Synchronisation des morceaux via un dépôt GitHub ----------
+  // Fichier morceaux.json dans un dépôt (privé de préférence). Fusion par morceau :
+  // la version la plus récente gagne ; une suppression plus récente que le morceau le retire.
+  const SYNC_KEY = 'drones-sync-v1';
+  const SYNC_FILE = 'morceaux.json';
+
+  const sync = {
+    cfg: loadSyncCfg(),
+    timer: null,
+    busy: false,
+    state: 'off', // off | idle | syncing | offline | error
+    detail: '',
+
+    get enabled() { return !!(this.cfg.repo && this.cfg.token); },
+
+    saveCfg(repo, token) {
+      this.cfg = { repo: repo.trim().replace(/^https?:\/\/github\.com\//, '').replace(/\/$/, ''), token: token.trim(), lastSync: this.cfg.lastSync || 0 };
+      localStorage.setItem(SYNC_KEY, JSON.stringify(this.cfg));
+      this.render();
+      if (this.enabled) this.run();
+    },
+
+    schedule() {
+      if (!this.enabled) return;
+      clearTimeout(this.timer);
+      this.timer = setTimeout(() => this.run(), 3000);
+    },
+
+    api(path, opts = {}) {
+      return fetch(`https://api.github.com/repos/${this.cfg.repo}/contents/${path}`, {
+        ...opts,
+        headers: {
+          Authorization: 'Bearer ' + this.cfg.token,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+          ...(opts.headers || {}),
+        },
+      });
+    },
+
+    async run() {
+      if (!this.enabled || this.busy) return;
+      if (!navigator.onLine) { this.set('offline'); return; }
+      this.busy = true;
+      this.set('syncing');
+      try {
+        // 1. Lire la version en ligne.
+        let remote = null, sha = null;
+        const r = await this.api(SYNC_FILE);
+        if (r.status === 200) {
+          const j = await r.json();
+          sha = j.sha;
+          remote = JSON.parse(utf8Decode(j.content));
+        } else if (r.status !== 404) {
+          throw new Error(r.status === 401 ? 'jeton refusé' : r.status === 403 ? 'accès refusé au dépôt' : 'HTTP ' + r.status);
+        }
+        // 2. Fusionner.
+        const before = JSON.stringify({ p: state.pieces, d: state.deleted, a4: state.a4 });
+        if (remote) merge(remote);
+        const merged = { pieces: state.pieces, deleted: state.deleted, a4: state.a4, savedAt: Date.now() };
+        const localChanged = JSON.stringify({ p: state.pieces, d: state.deleted, a4: state.a4 }) !== before;
+        if (localChanged) {
+          for (const p of state.pieces) hashes.set(p.id, pieceHash(p));
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          renderAll();
+          engine.sync();
+        }
+        // 3. Écrire si la version en ligne diffère.
+        const remoteNorm = remote ? JSON.stringify({ p: remote.pieces, d: remote.deleted, a4: remote.a4 }) : null;
+        if (remoteNorm !== JSON.stringify({ p: merged.pieces, d: merged.deleted, a4: merged.a4 })) {
+          const w = await this.api(SYNC_FILE, {
+            method: 'PUT',
+            body: JSON.stringify({
+              message: 'Morceaux ' + new Date().toISOString(),
+              content: utf8Encode(JSON.stringify(merged, null, 2)),
+              ...(sha ? { sha } : {}),
+            }),
+          });
+          if (w.status === 409 || w.status === 422) { this.busy = false; this.set('idle'); return this.run(); } // modifié entre-temps : on refusionne
+          if (!w.ok) throw new Error(w.status === 404 ? 'dépôt introuvable' : 'écriture refusée (' + w.status + ')');
+        }
+        this.cfg.lastSync = Date.now();
+        localStorage.setItem(SYNC_KEY, JSON.stringify(this.cfg));
+        this.set('idle');
+      } catch (e) {
+        this.set(navigator.onLine ? 'error' : 'offline', e.message);
+      }
+      this.busy = false;
+    },
+
+    set(st, detail = '') { this.state = st; this.detail = detail; this.render(); },
+
+    render() {
+      const el = $('#sync-status');
+      if (!el) return;
+      const last = this.cfg.lastSync ? new Date(this.cfg.lastSync).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '';
+      const txt = {
+        off: 'Synchronisation non configurée',
+        idle: last ? 'Synchronisé · ' + last : 'Synchronisé',
+        syncing: 'Synchronisation…',
+        offline: 'Hors ligne · sera synchronisé au retour du réseau' + (last ? ' (dernier : ' + last + ')' : ''),
+        error: 'Erreur : ' + this.detail,
+      }[this.enabled ? this.state : 'off'];
+      el.textContent = txt;
+      el.dataset.state = this.enabled ? this.state : 'off';
+    },
+  };
+
+  function loadSyncCfg() {
+    try { return { repo: '', token: '', lastSync: 0, ...JSON.parse(localStorage.getItem(SYNC_KEY) || '{}') }; }
+    catch (e) { return { repo: '', token: '', lastSync: 0 }; }
+  }
+
+  function merge(remote) {
+    const rp = Array.isArray(remote.pieces) ? remote.pieces.map(normalizePiece) : [];
+    const rd = (remote.deleted && typeof remote.deleted === 'object') ? remote.deleted : {};
+    // Suppressions : union des deux côtés.
+    for (const [id, ts] of Object.entries(rd)) state.deleted[id] = Math.max(Number(ts) || 0, state.deleted[id] || 0);
+    const byId = new Map(state.pieces.map(p => [p.id, p]));
+    for (const r of rp) {
+      const l = byId.get(r.id);
+      if (!l) state.pieces.push(r);
+      else if (r.updatedAt > l.updatedAt) Object.assign(l, r);
+    }
+    state.pieces = state.pieces.filter(p => !(state.deleted[p.id] && state.deleted[p.id] >= p.updatedAt));
+    for (const id of Object.keys(state.deleted)) if (state.pieces.find(p => p.id === id)) delete state.deleted[id];
+    if (remote.a4 && remote.savedAt && remote.savedAt > (sync.cfg.lastSync || 0)) state.a4 = clamp(Number(remote.a4) || 440, 400, 480);
+    if (!state.pieces.find(p => p.id === state.currentId)) state.currentId = state.pieces[0]?.id || null;
+  }
+
+  function utf8Encode(str) {
+    const bytes = new TextEncoder().encode(str);
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  }
+  function utf8Decode(b64) {
+    const bin = atob(b64.replace(/\n/g, ''));
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder().decode(bytes);
+  }
+
+  function renderSyncSettings() {
+    const box = $('#sync-settings');
+    box.querySelector('#sync-repo').value = sync.cfg.repo;
+    box.querySelector('#sync-token').value = sync.cfg.token;
+  }
+
+  $('#sync-save').addEventListener('click', () => {
+    sync.saveCfg($('#sync-repo').value, $('#sync-token').value);
+    $('#sync-settings').open = false;
+  });
+  $('#sync-now').addEventListener('click', () => sync.run());
+  window.addEventListener('online', () => sync.run());
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') sync.run(); });
+  renderSyncSettings();
+  sync.render();
+  if (sync.enabled) sync.run();
 
   // ---------- Hors ligne (PWA) ----------
   function showToast(text, btnLabel, onClick) {
