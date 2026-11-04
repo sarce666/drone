@@ -4,7 +4,7 @@
      via le bouton « Garder les sons hors ligne » de l'app.
    Changer VERSION force la mise à jour du shell chez les utilisateurs. */
 
-const VERSION = 'drones-2026-11-04-160448';
+const VERSION = 'drones-2026-11-04-161122';
 const SHELL_CACHE = 'drones-shell-' + VERSION;
 const SAMPLE_CACHE = 'drones-samples-v1';
 

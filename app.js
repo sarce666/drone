@@ -12,7 +12,8 @@
   const STORAGE_KEY = 'drones-app-v1';
   const RELEASE_MS = 4500;
   const SAMPLE_RELEASE_MS = 2200;
-  const SAMPLE_GAIN = 0.6;
+  const SAMPLE_GAIN = 1.0;
+  const SAMPLE_TARGET_RMS = Math.pow(10, -18 / 20); // niveau tenu visé après normalisation
   const KINDS = ['voices', 'samples'];
 
   const DEFAULT_SOUND = {
@@ -105,7 +106,7 @@
       voices: normalizeVoices(p.voices, () => true),
       samples: normalizeVoices(p.samples, hasSample),
       synthLevel: clamp(Number(p.synthLevel ?? 0.5), 0, 2),   // gain linéaire ; -6 dB par défaut
-      sampleLevel: clamp(Number(p.sampleLevel ?? 0.7), 0, 4),
+      sampleLevel: clamp(Number(p.sampleLevel ?? 1), 0, 4),
       mode: MODES.some(m => m.id === p.mode) ? p.mode : 'both',
       sound: { ...DEFAULT_SOUND, ...(p.sound || {}) },
       sampleSound: { ...DEFAULT_SAMPLE_SOUND, ...(p.sampleSound || {}) },
@@ -180,7 +181,14 @@
     let loopStart = (first * 0.05) + 0.4;
     let loopEnd = (last * 0.05) - 0.2;
     if (loopEnd - loopStart < 1.5) { loopStart = dur * 0.2; loopEnd = dur * 0.8; }
-    return { loopStart: clamp(loopStart, 0, dur), loopEnd: clamp(loopEnd, 0, dur) };
+    loopStart = clamp(loopStart, 0, dur); loopEnd = clamp(loopEnd, 0, dur);
+    // Niveau tenu réel → gain de normalisation (les fichiers varient de 6 dB entre eux).
+    const a = Math.floor(loopStart * buffer.sampleRate), b = Math.floor(loopEnd * buffer.sampleRate);
+    let sum = 0;
+    for (let i = a; i < b; i++) sum += data[i] * data[i];
+    const sustainRms = Math.sqrt(sum / Math.max(1, b - a));
+    const norm = clamp(SAMPLE_TARGET_RMS / (sustainRms || 1), 0.25, 4);
+    return { loopStart, loopEnd, norm };
   }
 
   class SampleVoice {
@@ -198,7 +206,7 @@
       this.next = this.ctx.currentTime + 0.05;
       const t = this.ctx.currentTime;
       this.out.gain.setValueAtTime(0, t);
-      this.out.gain.linearRampToValueAtTime(vol * SAMPLE_GAIN, t + 1);
+      this.out.gain.linearRampToValueAtTime(vol * SAMPLE_GAIN * data.norm, t + 1);
       this.schedule();
       this.timer = setInterval(() => this.schedule(), 400);
     }
@@ -231,7 +239,7 @@
     }
 
     setVolume(vol) {
-      this.out.gain.setTargetAtTime(vol * SAMPLE_GAIN, this.ctx.currentTime, 0.1);
+      this.out.gain.setTargetAtTime(vol * SAMPLE_GAIN * this.data.norm, this.ctx.currentTime, 0.1);
     }
 
     retune() {
