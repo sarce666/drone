@@ -4,7 +4,7 @@
      via le bouton « Garder les sons hors ligne » de l'app.
    Changer VERSION force la mise à jour du shell chez les utilisateurs. */
 
-const VERSION = 'drones-2026-11-04-161122';
+const VERSION = 'drones-2026-11-04-161907';
 const SHELL_CACHE = 'drones-shell-' + VERSION;
 const SAMPLE_CACHE = 'drones-samples-v1';
 
@@ -18,6 +18,9 @@ const SHELL = [
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/apple-touch-icon.png',
+  './fonts/permanent-marker.woff2',
+  './fonts/special-elite.woff2',
+  './fonts/anton.woff2',
 ];
 
 self.addEventListener('install', event => {

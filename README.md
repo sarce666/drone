@@ -72,3 +72,9 @@ Mise en place, une fois :
    et le jeton, puis « Enregistrer ». À faire sur chaque appareil.
 
 Le jeton reste dans l'app, sur l'appareil ; il ne donne accès qu'à ce dépôt.
+
+## Habillage
+
+Style repris d'un flyer de concert : fond noir tramé, titres vert pomme au pinceau, bandeaux violets en machine à
+écrire, capitales condensées. Polices embarquées dans `fonts/` (Permanent Marker, Special Elite, Anton, licence OFL,
+voir `fonts/LICENSE.txt`).

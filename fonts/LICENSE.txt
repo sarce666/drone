@@ -1,0 +1,4 @@
+Polices embarquées (sous-ensemble latin, via Google Fonts), toutes sous SIL Open Font License 1.1 :
+- Permanent Marker — Font Diner (https://fonts.google.com/specimen/Permanent+Marker)
+- Special Elite — Astigmatic (https://fonts.google.com/specimen/Special+Elite)
+- Anton — Vernon Adams (https://fonts.google.com/specimen/Anton)
