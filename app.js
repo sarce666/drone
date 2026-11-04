@@ -1020,10 +1020,23 @@
     get enabled() { return !!(this.cfg.repo && this.cfg.token); },
 
     saveCfg(repo, token) {
-      this.cfg = { repo: repo.trim().replace(/^https?:\/\/github\.com\//, '').replace(/\/$/, ''), token: token.trim(), lastSync: this.cfg.lastSync || 0 };
+      repo = repo.trim().replace(/^https?:\/\/(www\.)?github\.com\//, '').replace(/\.git$/, '').replace(/\/$/, '');
+      token = token.trim();
+      if (!repo || !token) {
+        this.cfg = { repo, token, lastSync: 0 };
+        localStorage.setItem(SYNC_KEY, JSON.stringify(this.cfg));
+        this.set('missing', !repo && !token ? 'il manque le dépôt et le jeton' : !repo ? 'il manque le nom du dépôt' : 'il manque le jeton');
+        return false;
+      }
+      if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) {
+        this.set('missing', 'dépôt attendu sous la forme compte/nom, ex. sarce666/drone-data');
+        return false;
+      }
+      this.cfg = { repo, token, lastSync: 0 };
       localStorage.setItem(SYNC_KEY, JSON.stringify(this.cfg));
-      this.render();
-      if (this.enabled) this.run();
+      this.set('idle');
+      this.run();
+      return true;
     },
 
     schedule() {
@@ -1102,11 +1115,12 @@
       const last = this.cfg.lastSync ? new Date(this.cfg.lastSync).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '';
       const txt = {
         off: 'Synchronisation non configurée',
+        missing: 'Non enregistré : ' + this.detail,
         idle: last ? 'Synchronisé · ' + last : 'Synchronisé',
         syncing: 'Synchronisation…',
         offline: 'Hors ligne · sera synchronisé au retour du réseau' + (last ? ' (dernier : ' + last + ')' : ''),
         error: 'Erreur : ' + this.detail,
-      }[this.enabled ? this.state : 'off'];
+      }[this.enabled ? this.state : (this.state === 'missing' ? 'missing' : 'off')];
       el.textContent = txt;
       el.dataset.state = this.enabled ? this.state : 'off';
     },
@@ -1153,10 +1167,18 @@
     box.querySelector('#sync-token').value = sync.cfg.token;
   }
 
-  $('#sync-save').addEventListener('click', () => {
-    sync.saveCfg($('#sync-repo').value, $('#sync-token').value);
-    $('#sync-settings').open = false;
-  });
+  function saveSyncFromFields() {
+    const ok = sync.saveCfg($('#sync-repo').value, $('#sync-token').value);
+    renderSyncSettings();
+    if (ok) {
+      $('#sync-settings').open = false;
+      showToast('Synchronisation enregistrée : ' + sync.cfg.repo, 'OK', () => { $('#toast').hidden = true; });
+    }
+  }
+  $('#sync-save').addEventListener('click', saveSyncFromFields);
+  for (const id of ['#sync-repo', '#sync-token']) {
+    $(id).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); saveSyncFromFields(); } });
+  }
   $('#sync-now').addEventListener('click', () => sync.run());
   window.addEventListener('online', () => sync.run());
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') sync.run(); });

@@ -246,9 +246,12 @@ input[type="range"] { touch-action: pan-y; accent-color: var(--green); }
 .sync summary:has(.sync-status[data-state="offline"])::before { color: #f1c232; }
 .sync summary:has(.sync-status[data-state="error"])::before { color: #e5484d; }
 .sync .sync-status[data-state="error"] { color: #ff8589; }
+.sync .sync-status[data-state="missing"] { color: #f1c232; }
+.sync summary:has(.sync-status[data-state="missing"])::before { color: #f1c232; }
 .sync .hint { margin: 8px 0; }
 .sync code { font-size: 11px; }
 .field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.field input.secret { -webkit-text-security: disc; }
 .field input {
   padding: 6px 8px;
   background: #000;

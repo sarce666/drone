@@ -44,8 +44,8 @@
         <details id="sync-settings" class="sync">
           <summary><span id="sync-status" class="sync-status"></span></summary>
           <p class="hint">Les morceaux sont enregistrés dans un fichier <code>morceaux.json</code> d'un dépôt GitHub à vous, et récupérés sur chaque appareil dès qu'il y a du réseau.</p>
-          <label class="field">Dépôt <input id="sync-repo" type="text" placeholder="sarce666/drone-data" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
-          <label class="field">Jeton d'accès <input id="sync-token" type="password" placeholder="github_pat_…" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+          <label class="field">Dépôt <input id="sync-repo" type="text" placeholder="sarce666/drone-data" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false"></label>
+          <label class="field">Jeton d'accès <input id="sync-token" type="text" class="secret" placeholder="github_pat_…" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false"></label>
           <div class="side-row">
             <button id="sync-save" class="btn">Enregistrer</button>
             <button id="sync-now" class="btn ghost">Synchroniser maintenant</button>
