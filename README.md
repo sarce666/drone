@@ -1,4 +1,4 @@
-# Drones
+# VETERAN (Drones)
 
 Application interne : une bibliothèque de drones pour la pratique musicale.
 Pour chaque morceau, on allume les notes qui doivent sonner, et c'est enregistré automatiquement. Un clic sur un morceau dans la liste lance son drone.

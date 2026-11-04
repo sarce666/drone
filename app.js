@@ -563,7 +563,7 @@
     cellEls.voices.clear();
     cellEls.samples.clear();
     if (!p) {
-      main.innerHTML = `<div class="welcome"><h1>Drones</h1>
+      main.innerHTML = `<div class="welcome"><h1>VETERAN</h1>
         <p>Créez un morceau, choisissez sa tonique, touchez les notes qui doivent sonner, et c'est enregistré.
         Ensuite, un clic sur le morceau dans la liste lance son drone.</p>
         <p><button class="btn" id="welcome-new">+ Nouveau morceau</button></p></div>`;

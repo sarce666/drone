@@ -11,7 +11,7 @@
     <path d="M70 230 C 120 120, 170 120, 220 230 S 320 340, 370 230 S 440 150, 460 200" opacity="0.95"/>
     <path d="M70 300 C 120 220, 170 220, 220 300 S 320 380, 370 300 S 440 240, 460 270" opacity="0.5"/>
   </g>
-  <g fill="#f3f3ee" font-family="Courier, monospace" font-size="54" font-weight="bold" letter-spacing="6">
-    <text x="256" y="448" text-anchor="middle">DRONES</text>
+  <g fill="#f3f3ee" font-family="Courier, monospace" font-size="50" font-weight="bold" letter-spacing="4">
+    <text x="256" y="448" text-anchor="middle">VETERAN</text>
   </g>
 </svg>
