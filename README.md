@@ -16,8 +16,11 @@ Chaque morceau a deux pads qui jouent en même temps :
 
 ## Lancer
 
-C'est une application web installable (PWA). Publiée en ligne (GitHub Pages), on l'ouvre une fois dans Safari sur
-l'iPad, puis « Partager » → « Sur l'écran d'accueil ». Elle fonctionne ensuite hors ligne : le bouton
+C'est une application web installable (PWA), publiée sur GitHub Pages :
+
+**<https://sarce666.github.io/drone/>**
+
+Sur l'iPad, l'ouvrir une fois dans Safari, puis « Partager » → « Sur l'écran d'accueil ». Elle fonctionne ensuite hors ligne : le bouton
 « Garder les sons hors ligne » télécharge les 39 WAV dans le cache de l'appareil. Les morceaux sont enregistrés sur
 l'appareil lui-même.
 
@@ -30,8 +33,9 @@ python3 -m http.server 8765 --bind 127.0.0.1
 puis ouvrir <http://127.0.0.1:8765/>. Le service worker n'est actif qu'en https ou sur localhost ; les samples ne
 peuvent pas être lus si l'on ouvre `index.html` directement par double-clic.
 
-Après une modification de l'app, changer `VERSION` dans `sw.js` pour que les appareils installés se mettent à jour
-(un bandeau « Nouvelle version disponible » apparaît).
+Après une modification de l'app, double-cliquer `publier.command` (ou `./publier.command "message"`) : il met à jour
+`VERSION` dans `sw.js`, commit et pousse ; GitHub Pages redéploie en une à deux minutes et les appareils installés
+affichent « Nouvelle version disponible » à leur prochaine ouverture. Dépôt : <https://github.com/sarce666/drone>.
 
 ## Utilisation
 
