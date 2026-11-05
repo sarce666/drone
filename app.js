@@ -2,7 +2,8 @@
    Pad 1 (synthèse) : moteur repris du Chromatone Drone (https://github.com/chromatone/drone, MIT) :
    dent de scie → saturation légère → filtre passe-bas auto-modulé → (chorus) → pan/volume
    avec LFO lents sur le panoramique et le volume, enveloppe 2 s d'attaque / 4 s de relâche.
-   Pad 2 (harmonium) : samples Freesound (pack 29512, CC0) bouclés avec fondu enchaîné. */
+   Pad 2 (harmonium) : samples Freesound (pack 29512, CC0) bouclés avec fondu enchaîné.
+   Pad 3 (basse) : un seul sample (Moog long bass, Sample Focus) transposé sur toutes les notes, bouclé de même. */
 (() => {
   'use strict';
 
@@ -14,7 +15,8 @@
   const SAMPLE_RELEASE_MS = 2200;
   const SAMPLE_GAIN = 1.0;
   const SAMPLE_TARGET_RMS = Math.pow(10, -18 / 20); // niveau tenu visé après normalisation
-  const KINDS = ['voices', 'samples'];
+  const KINDS = ['voices', 'samples', 'bass'];
+  const SAMPLED = ['samples', 'bass']; // pads à base de samples (même moteur de bouclage)
 
   const DEFAULT_SOUND = {
     cutoff: 16000, q: 0,
@@ -28,16 +30,20 @@
     { id: 'drone', label: 'Drone' },
     { id: 'synth', label: 'Synthé' },
     { id: 'harmonium', label: 'Harmonium' },
+    { id: 'bass', label: 'Basse' },
     { id: 'drums', label: 'Batterie' },
   ];
   const synthOn = p => p.parts.drone && p.parts.synth;
   const sampleOn = p => p.parts.drone && p.parts.harmonium;
+  const bassOn = p => p.parts.drone && p.parts.bass;
+  const padOn = { samples: sampleOn, bass: bassOn };
   const drumsOn = p => p.parts.drums;
   const HISTORY_KEY = 'drones-history-v1';
   const HISTORY_MAX = 40;        // versions gardées par morceau
   const HISTORY_GROUP_MS = 4000; // modifications rapprochées = une seule version
-  const DEFAULTS = { voices: DEFAULT_SOUND, samples: DEFAULT_SAMPLE_SOUND };
-  const SOUND_KEY = { voices: 'sound', samples: 'sampleSound' };
+  const DEFAULTS = { voices: DEFAULT_SOUND, samples: DEFAULT_SAMPLE_SOUND, bass: DEFAULT_SAMPLE_SOUND };
+  const SOUND_KEY = { voices: 'sound', samples: 'sampleSound', bass: 'bassSound' };
+  const LEVEL_KEY = { samples: 'sampleLevel', bass: 'bassLevel' };
 
   const SOUND_PARAMS = [
     { key: 'cutoff', label: 'Brillance (filtre)', min: 100, max: 16000, log: true, fmt: v => Math.round(v) + ' Hz' },
@@ -55,7 +61,7 @@
   const octaveOf = m => Math.floor(m / 12) - 1;
   // Couleur d'un morceau : sa note la plus grave.
   const pieceHue = p => {
-    const all = [...Object.keys(p.voices), ...Object.keys(p.samples)].map(Number);
+    const all = [...Object.keys(p.voices), ...Object.keys(p.samples), ...Object.keys(p.bass)].map(Number);
     return all.length ? hue(Math.min(...all)) : 0;
   };
   const freqOf = m => state.a4 * Math.pow(2, (m - 69) / 12);
@@ -73,6 +79,9 @@
   const useWav = /^https?:$/.test(location.protocol);
   const hasSample = midi => midi >= SAMPLE_MIN && midi <= SAMPLE_MAX;
   const wavUrl = midi => SAMPLE_DIR + noteName(midi).replace('#', 's') + '.wav';
+  // Basse : un seul sample, transposé. Sa note de base est détectée au chargement (BASS_ROOT si la détection échoue).
+  const BASS_URL = 'samples/bass/bass.wav';
+  const BASS_ROOT = 36; // Do2
   // Percussions au tempo : chaque piste a un ou plusieurs sons au choix.
   const PERC = {
     kick: { label: 'Grosse caisse', sounds: [{ id: 'kick5', label: 'Kick 5', url: 'samples/kick/kick5.wav' }] },
@@ -115,7 +124,7 @@
     r.div = div;
   }
   const percUrls = () => PERC_IDS.flatMap(id => PERC[id].sounds.map(sd => sd.url));
-  const allSampleUrls = () => [...Array.from({ length: SAMPLE_MAX - SAMPLE_MIN + 1 }, (_, i) => wavUrl(SAMPLE_MIN + i)), ...percUrls()];
+  const allSampleUrls = () => [...Array.from({ length: SAMPLE_MAX - SAMPLE_MIN + 1 }, (_, i) => wavUrl(SAMPLE_MIN + i)), BASS_URL, ...percUrls()];
 
   // ---------- État ----------
   let state = load();
@@ -187,12 +196,15 @@
       name: String(p.name || 'Sans titre'),
       voices: normalizeVoices(p.voices, () => true),
       samples: normalizeVoices(p.samples, hasSample),
+      bass: normalizeVoices(p.bass, () => true),
       synthLevel: clamp(Number(p.synthLevel ?? 0.5), 0, 2),   // gain linéaire ; -6 dB par défaut
       sampleLevel: clamp(Number(p.sampleLevel ?? 1), 0, 4),
+      bassLevel: clamp(Number(p.bassLevel ?? 1), 0, 4),
       parts: normalizeParts(p.parts, p.mode),
       rhythm: normalizeRhythm(p.rhythm, p.kick),
       sound: { ...DEFAULT_SOUND, ...(p.sound || {}) },
       sampleSound: { ...DEFAULT_SAMPLE_SOUND, ...(p.sampleSound || {}) },
+      bassSound: { ...DEFAULT_SAMPLE_SOUND, ...(p.bassSound || {}) },
       updatedAt: Number(p.updatedAt) || 0,
     };
   }
@@ -300,7 +312,7 @@
 
   // Résumé d'une version pour la liste.
   function describe(s) {
-    const n = Object.keys(s.voices || {}).length + Object.keys(s.samples || {}).length;
+    const n = Object.keys(s.voices || {}).length + Object.keys(s.samples || {}).length + Object.keys(s.bass || {}).length;
     const parts = PARTS.filter(part => s.parts?.[part.id] === false).map(part => part.label.toLowerCase());
     const drums = PERC_IDS.filter(id => s.rhythm?.tracks?.[id]?.on).length;
     const bits = [`${n} ${n > 1 ? 'notes' : 'note'}`, `${s.rhythm?.bpm ?? '?'} BPM`];
@@ -333,6 +345,58 @@
     return sampleBuffers.get(midi);
   }
 
+  // Basse : un seul fichier pour toutes les notes. Chargé une fois ; root = note de base détectée.
+  let bassBuffer = null;
+  function loadBass() {
+    if (!bassBuffer) {
+      bassBuffer = (async () => {
+        const r = await fetch(BASS_URL);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const bytes = await r.arrayBuffer();
+        const ctx = Tone.getContext().rawContext;
+        const buffer = await new Promise((res, rej) => ctx.decodeAudioData(bytes, res, rej));
+        updateCacheStatus();
+        const loop = findLoop(buffer);
+        const root = detectRoot(buffer, loop.loopStart, loop.loopEnd) ?? BASS_ROOT;
+        console.info('Basse : note de base', noteName(root));
+        return { buffer, ...loop, root };
+      })();
+      bassBuffer.catch(() => { bassBuffer = null; });
+    }
+    return bassBuffer;
+  }
+  const loaderFor = { samples: midi => loadSample(midi), bass: () => loadBass() };
+
+  // Hauteur d'un sample tenu, par autocorrélation sur sa zone tenue → note MIDI (null si rien de net).
+  function detectRoot(buffer, loopStart, loopEnd) {
+    const sr = buffer.sampleRate, data = buffer.getChannelData(0);
+    const start = Math.floor(((loopStart + loopEnd) / 2) * sr);
+    const n = Math.min(Math.floor(sr * 0.4), data.length - start);
+    const minLag = Math.floor(sr / 1000), maxLag = Math.floor(sr / 25); // 25 Hz … 1 kHz
+    if (n < maxLag * 2) return null;
+    const seg = data.subarray(start, start + n);
+    const len = n - maxLag;
+    let e0 = 0;
+    for (let i = 0; i < len; i++) e0 += seg[i] * seg[i];
+    const corr = new Float32Array(maxLag + 1);
+    for (let lag = minLag; lag <= maxLag; lag++) {
+      let sum = 0, e1 = 0;
+      for (let i = 0; i < len; i++) { sum += seg[i] * seg[i + lag]; e1 += seg[i + lag] * seg[i + lag]; }
+      corr[lag] = sum / Math.sqrt(e0 * e1 || 1);
+    }
+    let best = 0;
+    for (let lag = minLag; lag <= maxLag; lag++) best = Math.max(best, corr[lag]);
+    if (best < 0.5) return null;
+    // Premier pic franc (≥ 90 % du meilleur) : la période fondamentale, pas un multiple.
+    let lag = minLag;
+    while (lag <= maxLag && !(corr[lag] >= best * 0.9 && corr[lag] >= corr[lag - 1] && corr[lag] >= corr[lag + 1])) lag++;
+    if (lag > maxLag) return null;
+    const a = corr[lag - 1], b = corr[lag], c = corr[lag + 1];
+    const shift = (a - c) / (2 * (a - 2 * b + c) || 1);
+    const freq = sr / (lag + shift);
+    return clamp(Math.round(69 + 12 * Math.log2(freq / 440)), 0, 127);
+  }
+
   // Trouve la zone tenue du son (après l'attaque, avant la chute) pour y boucler.
   function findLoop(buffer) {
     const data = buffer.getChannelData(0);
@@ -363,14 +427,17 @@
   }
 
   class SampleVoice {
-    constructor(midi, data, vol) {
+    constructor(kind, midi, data, vol) {
+      this.kind = kind;
       this.midi = midi;
       this.data = data;
+      // Transposition : les samples harmonium sont déjà à la bonne hauteur ; la basse part de sa note de base.
+      this.base = data.root != null ? Math.pow(2, (midi - data.root) / 12) : 1;
       this.ctx = Tone.getContext().rawContext;
       this.out = this.ctx.createGain();
       this.out.gain.value = 0;
       this.meter = new Tone.Meter({ normalRange: true, smoothing: 0.85 });
-      Tone.connect(this.out, engine.sampleFx.dist);
+      Tone.connect(this.out, engine.fx[kind].dist);
       Tone.connect(this.out, this.meter);
       this.sources = new Set();
       this.first = true;
@@ -385,7 +452,7 @@
     // Enchaîne des segments de la zone tenue avec fondu enchaîné : boucle sans clic.
     schedule() {
       const { loopStart, loopEnd, buffer } = this.data;
-      const rate = state.a4 / 440;
+      const rate = this.base * state.a4 / 440;
       while (this.next < this.ctx.currentTime + 1.5) {
         const offset = this.first ? 0 : loopStart;
         const len = (loopEnd - offset) / rate;
@@ -414,7 +481,7 @@
     }
 
     retune() {
-      const rate = state.a4 / 440;
+      const rate = this.base * state.a4 / 440;
       for (const s of this.sources) s.playbackRate.setTargetAtTime(rate, this.ctx.currentTime, 0.1);
     }
 
@@ -540,8 +607,14 @@
     synthBus: null,
     sampleBus: null,
     sampleFx: null,      // effets partagés du pad harmonium
+    bassBus: null,
+    bassFx: null,        // effets partagés du pad basse
+    fx: {},              // kind → effets (samples, bass)
+    bus: {},             // kind → bus de niveau
     chains: new Map(),   // pad synthé : midi → chaîne Tone
     samples: new Map(),  // pad harmonium : midi → SampleVoice (ou { loading: true, vol })
+    bass: new Map(),     // pad basse : idem
+    voicesOf(kind) { return kind === 'bass' ? this.bass : this.samples; },
     fading: new Map(),   // voix en cours de relâche (encore mesurées pour la lueur)
 
     async ensure() {
@@ -552,6 +625,10 @@
       this.synthBus = new Tone.Gain(cur()?.synthLevel ?? 1).connect(this.master);
       this.sampleBus = new Tone.Gain(cur()?.sampleLevel ?? 0.7).connect(this.master);
       this.sampleFx = makeFx(this.sampleBus, cur()?.sampleSound || DEFAULT_SAMPLE_SOUND);
+      this.bassBus = new Tone.Gain(cur()?.bassLevel ?? 1).connect(this.master);
+      this.bassFx = makeFx(this.bassBus, cur()?.bassSound || DEFAULT_SAMPLE_SOUND);
+      this.fx = { samples: this.sampleFx, bass: this.bassFx };
+      this.bus = { samples: this.sampleBus, bass: this.bassBus };
       this.ready = true;
       meterLoop();
     },
@@ -568,7 +645,7 @@
     stop() {
       this.playing = false;
       for (const midi of [...this.chains.keys()]) this.release(midi);
-      for (const midi of [...this.samples.keys()]) this.stopSample(midi);
+      for (const kind of SAMPLED) for (const midi of [...this.voicesOf(kind).keys()]) this.stopSample(kind, midi);
       rhythm.stop();
       renderTransport();
       renderList();
@@ -596,16 +673,19 @@
       for (const midi of [...this.chains.keys()]) if (!(midi in wanted)) this.release(midi);
       if (p) { applySound(p.sound); this.synthBus.gain.rampTo(p.synthLevel, 0.2); }
 
-      const wantedS = p && sampleOn(p) ? p.samples : {};
-      for (const [midiStr, v] of Object.entries(wantedS)) {
-        const midi = Number(midiStr);
-        const sv = this.samples.get(midi);
-        if (!sv) this.startSample(midi, v.vol);
-        else if (sv.loading) sv.vol = v.vol;
-        else sv.setVolume(v.vol);
+      for (const kind of SAMPLED) {
+        const live = this.voicesOf(kind);
+        const wantedS = p && padOn[kind](p) ? p[kind] : {};
+        for (const [midiStr, v] of Object.entries(wantedS)) {
+          const midi = Number(midiStr);
+          const sv = live.get(midi);
+          if (!sv) this.startSample(kind, midi, v.vol);
+          else if (sv.loading) sv.vol = v.vol;
+          else sv.setVolume(v.vol);
+        }
+        for (const midi of [...live.keys()]) if (!(midi in wantedS)) this.stopSample(kind, midi);
+        if (p) { this.bus[kind].gain.rampTo(p[LEVEL_KEY[kind]], 0.2); applyFx(this.fx[kind], p[SOUND_KEY[kind]]); }
       }
-      for (const midi of [...this.samples.keys()]) if (!(midi in wantedS)) this.stopSample(midi);
-      if (p) { this.sampleBus.gain.rampTo(p.sampleLevel, 0.2); applyFx(this.sampleFx, p.sampleSound); }
 
       if (p && drumsOn(p)) rhythm.apply(p.rhythm, p.id); else rhythm.stop();
     },
@@ -625,31 +705,33 @@
       }, RELEASE_MS);
     },
 
-    startSample(midi, vol) {
+    startSample(kind, midi, vol) {
+      const live = this.voicesOf(kind);
       const token = { loading: true, vol };
-      this.samples.set(midi, token);
-      updateCell('samples', midi, cur());
-      loadSample(midi).then(data => {
-        if (this.samples.get(midi) !== token) return; // éteint entre-temps
-        this.samples.set(midi, new SampleVoice(midi, data, token.vol));
-        updateCell('samples', midi, cur());
+      live.set(midi, token);
+      updateCell(kind, midi, cur());
+      loaderFor[kind](midi).then(data => {
+        if (live.get(midi) !== token) return; // éteint entre-temps
+        live.set(midi, new SampleVoice(kind, midi, data, token.vol));
+        updateCell(kind, midi, cur());
       }).catch(err => {
-        console.error('Sample illisible', noteName(midi), err);
-        if (this.samples.get(midi) === token) this.samples.delete(midi);
-        updateCell('samples', midi, cur());
+        console.error('Sample illisible', kind, noteName(midi), err);
+        if (live.get(midi) === token) live.delete(midi);
+        updateCell(kind, midi, cur());
       });
     },
 
-    stopSample(midi) {
-      const sv = this.samples.get(midi);
+    stopSample(kind, midi) {
+      const live = this.voicesOf(kind);
+      const sv = live.get(midi);
       if (!sv) return;
-      this.samples.delete(midi);
+      live.delete(midi);
       if (sv.loading) return;
-      this.fading.set(sv, { kind: 'samples', midi });
+      this.fading.set(sv, { kind, midi });
       sv.stop();
       setTimeout(() => {
         this.fading.delete(sv);
-        cellEls.samples.get(midi)?.style.setProperty('--lvl', 0);
+        cellEls[kind].get(midi)?.style.setProperty('--lvl', 0);
       }, SAMPLE_RELEASE_MS);
     },
 
@@ -658,13 +740,13 @@
         const c = this.chains.get(midi);
         if (c) c.synth.volume.rampTo(Tone.gainToDb(vol) - 10, 0.1);
       } else {
-        const sv = this.samples.get(midi);
+        const sv = this.voicesOf(kind).get(midi);
         if (sv?.loading) sv.vol = vol; else sv?.setVolume(vol);
       }
     },
 
-    setSampleLevel(v) {
-      if (this.sampleBus) this.sampleBus.gain.rampTo(v, 0.2);
+    setPadLevel(kind, v) {
+      if (this.bus[kind]) this.bus[kind].gain.rampTo(v, 0.2);
     },
 
     setSynthLevel(v) {
@@ -673,7 +755,7 @@
 
     retune() {
       for (const [midi, c] of this.chains) c.synth.frequency.rampTo(freqOf(midi), 0.3);
-      for (const sv of this.samples.values()) sv.retune?.();
+      for (const kind of SAMPLED) for (const sv of this.voicesOf(kind).values()) sv.retune?.();
     },
 
     setMaster(v) {
@@ -753,7 +835,7 @@
   function applyKindSound(kind, p) {
     if (!engine.ready) return;
     if (kind === 'voices') applySound(p.sound);
-    else applyFx(engine.sampleFx, p.sampleSound);
+    else applyFx(engine.fx[kind], p[SOUND_KEY[kind]]);
   }
 
   // Changer « épaisseur » demande un nouvel oscillateur : on fond l'ancien dans le nouveau.
@@ -777,9 +859,9 @@
     };
     const tick = () => {
       for (const [midi, c] of engine.chains) paint('voices', midi, c.meter);
-      for (const [midi, sv] of engine.samples) if (!sv.loading) paint('samples', midi, sv.meter);
+      for (const kind of SAMPLED) for (const [midi, sv] of engine.voicesOf(kind)) if (!sv.loading) paint(kind, midi, sv.meter);
       for (const [obj, { kind, midi }] of engine.fading) {
-        const live = kind === 'voices' ? engine.chains : engine.samples;
+        const live = kind === 'voices' ? engine.chains : engine.voicesOf(kind);
         if (!live.has(midi)) paint(kind, midi, obj.meter);
       }
       requestAnimationFrame(tick);
@@ -788,7 +870,7 @@
   }
 
   // ---------- Rendu ----------
-  const cellEls = { voices: new Map(), samples: new Map() };
+  const cellEls = { voices: new Map(), samples: new Map(), bass: new Map() };
 
   function renderAll() {
     const p = cur();
@@ -817,7 +899,7 @@
       const li = document.createElement('li');
       li.className = 'piece' + (p.id === state.currentId ? ' current' : '');
       li.style.setProperty('--h', pieceHue(p));
-      const n = Object.keys(p.voices).length + Object.keys(p.samples).length;
+      const n = Object.keys(p.voices).length + Object.keys(p.samples).length + Object.keys(p.bass).length;
       li.innerHTML = `<span class="swatch"></span><span class="name"></span>` +
         `<span class="meta">${n} ${n > 1 ? 'notes' : 'note'}</span>` +
         (engine.playing && p.id === state.currentId ? '<span class="playing">▶</span>' : '');
@@ -835,8 +917,7 @@
   function renderMain() {
     const main = $('#main');
     const p = cur();
-    cellEls.voices.clear();
-    cellEls.samples.clear();
+    for (const kind of KINDS) cellEls[kind].clear();
     if (!p) {
       main.innerHTML = `<div class="welcome"><h1>VETERAN</h1>
         <p>Créez un morceau, choisissez sa tonique, touchez les notes qui doivent sonner, et c'est enregistré.
@@ -954,6 +1035,18 @@
         <div class="grid" id="grid-samples"></div>
         <div class="hint">Vrai harmonium (Do2 à Ré5) enregistré par donyaquick, découpé par cabled_mess · Freesound, CC0 · WAV 96 kHz. Les notes grisées n'existent pas dans la banque.${useWav ? '' : ' <b>Ouvrez l\'app via un serveur (http) ou la version installée : en ouverture directe du fichier, les samples ne peuvent pas être lus.</b>'}</div>
         ${soundPanel('samples', "Son de l'harmonium")}
+      </div>` : ''}
+
+      ${bassOn(p) ? `
+      <div class="section pad">
+        <div class="section-title">Pad 3 — Basse
+          <label class="level">Niveau <input type="range" id="bass-level" min="-36" max="12" step="0.5"><span class="db" id="bass-level-db"></span></label>
+          <span class="spacer"></span>
+          ${clearButton('bass')}
+        </div>
+        <div class="grid" id="grid-bass"></div>
+        <div class="hint">Basse Moog (« Travis Scott Type — Moog Long Bass » d'Albert Mathiesen, Sample Focus, libre de droits) : un seul enregistrement, transposé sur toutes les notes et bouclé. Loin de sa note de base, le timbre change.</div>
+        ${soundPanel('bass', 'Son de la basse')}
       </div>` : ''}`;
 
     const nameInput = main.querySelector('#piece-name');
@@ -985,7 +1078,8 @@
       bindLevel(main, '#level-' + id, '#level-' + id + '-db', () => p.rhythm.tracks[id].level, v => { p.rhythm.tracks[id].level = v; rhythm.setLevel(id, v); });
     }
     if (main.querySelector('#bpm')) bindRhythm(main, p);
-    bindLevel(main, '#sample-level', '#sample-level-db', () => p.sampleLevel, v => { p.sampleLevel = v; engine.setSampleLevel(v); });
+    bindLevel(main, '#sample-level', '#sample-level-db', () => p.sampleLevel, v => { p.sampleLevel = v; engine.setPadLevel('samples', v); });
+    bindLevel(main, '#bass-level', '#bass-level-db', () => p.bassLevel, v => { p.bassLevel = v; engine.setPadLevel('bass', v); });
 
     for (const kind of KINDS) {
       if ($('#grid-' + kind)) { renderGrid(kind, p); renderSound(kind, p); }
@@ -1184,7 +1278,7 @@
     if (!el || !p) return;
     const v = p[kind][midi];
     el.classList.toggle('on', !!v);
-    el.classList.toggle('loading', kind === 'samples' && !!engine.samples.get(midi)?.loading);
+    el.classList.toggle('loading', kind !== 'voices' && !!engine.voicesOf(kind).get(midi)?.loading);
     el.style.setProperty('--vol', v ? v.vol : 0);
     el.title = el.classList.contains('na') ? `${noteName(midi)} · pas dans la banque`
       : v ? `${noteName(midi)} · volume ${Math.round(v.vol * 100)} %` : noteName(midi);

@@ -3,7 +3,7 @@
 Application interne : une bibliothèque de drones pour la pratique musicale.
 Pour chaque morceau, on allume les notes qui doivent sonner, et c'est enregistré automatiquement. Un clic sur un morceau dans la liste lance son drone.
 
-Chaque morceau a deux pads qui jouent en même temps :
+Chaque morceau a trois pads qui jouent en même temps :
 
 - **Pad 1 — Synthé** : moteur repris du [Chromatone Drone](https://github.com/chromatone/drone) (MIT).
   Pas de samples, le son est synthétisé en direct avec [Tone.js](https://tonejs.github.io/)
@@ -13,6 +13,13 @@ Chaque morceau a deux pads qui jouent en même temps :
   (enregistrement de donyaquick, Yale), licence CC0. Chaque note est bouclée sur sa partie tenue avec un fondu
   enchaîné, pour tenir indéfiniment sans clic. Les fichiers originaux (WAV 96 kHz, 68 Mo) sont dans
   `samples/harmonium/`.
+- **Pad 3 — Basse** : un seul enregistrement, « Travis Scott Type — Moog Long Bass » d'Albert Mathiesen
+  ([Sample Focus](https://samplefocus.com/samples/travis-scott-type-moog-long-bass), licence standard, libre de
+  droits), dans `samples/bass/bass.wav`. Sa note de base est détectée au chargement (autocorrélation), puis le
+  son est transposé sur toutes les notes du pad (Do1 à Si5) et bouclé comme l'harmonium. Loin de la note de base,
+  le timbre change, c'est voulu. Pour changer de basse : nouveau fichier WAV (note tenue, 5 s ou plus) sous un
+  **nouveau nom** dans `samples/bass/`, et `BASS_URL` dans `app.js` pointé dessus ; les appareils gardent les sons
+  en cache par nom de fichier, un fichier remplacé sous le même nom ne serait pas rechargé.
 
 ## Lancer
 
@@ -40,9 +47,9 @@ affichent « Nouvelle version disponible » à leur prochaine ouverture. Dépôt
 ## Utilisation
 
 - **Morceaux** (colonne de gauche) : « + Nouveau » crée un morceau. Cliquer sur un morceau le charge et lance son drone.
-- **Drone / Synthé / Harmonium / Batterie** : quatre gros boutons en haut du morceau, verts quand la partie est
-  active ; un toucher l'éteint, un autre la rallume. « Drone » couvre le synthé et l'harmonium : éteint, les deux se
-  taisent même si leurs boutons restent verts. Une partie éteinte disparaît de l'écran mais garde ses notes et ses
+- **Drone / Synthé / Harmonium / Basse / Batterie** : cinq gros boutons en haut du morceau, verts quand la partie
+  est active ; un toucher l'éteint, un autre la rallume. « Drone » couvre le synthé, l'harmonium et la basse :
+  éteint, les trois se taisent même si leurs boutons restent verts. Une partie éteinte disparaît de l'écran mais garde ses notes et ses
   réglages.
 - **Annuler / Rétablir et Versions** : chaque modification du morceau crée une version (les modifications à moins de
   4 secondes d'intervalle sont regroupées) ; 40 versions sont gardées par morceau. « ↶ Annuler » revient à la
@@ -53,6 +60,7 @@ affichent « Nouvelle version disponible » à leur prochaine ouverture. Dépôt
   règle son volume. Le curseur « Niveau » règle le volume global du pad.
 - **Pad 2 — Harmonium** : même grille, mêmes gestes, même curseur « Niveau ». Les notes grisées n'existent pas dans
   la banque (Do2 à Ré5).
+- **Pad 3 — Basse** : même grille, toutes les notes jouables, même curseur « Niveau » et même panneau « Son ».
 - **Rythme** : un séquenceur à cases. Tempo en BPM (champ, boutons − / +, curseur) commun aux trois pistes, compteur
   de temps (1 à 4) qui bat la mesure. Une ligne par instrument (grosse caisse, caisse claire, cymbale) : bouton
   ON/OFF (sur OFF, seule la ligne de titre reste visible), choix du son (plusieurs cymbales), niveau, puis les cases
