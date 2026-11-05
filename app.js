@@ -35,7 +35,7 @@
   ];
   const synthOn = p => p.parts.drone && p.parts.synth;
   const sampleOn = p => p.parts.drone && p.parts.harmonium;
-  const bassOn = p => p.parts.drone && p.parts.bass;
+  const bassOn = p => p.parts.bass; // indépendante de Drone, comme la batterie
   const padOn = { samples: sampleOn, bass: bassOn };
   const drumsOn = p => p.parts.drums;
   const HISTORY_KEY = 'drones-history-v1';

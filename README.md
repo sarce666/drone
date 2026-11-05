@@ -48,8 +48,8 @@ affichent « Nouvelle version disponible » à leur prochaine ouverture. Dépôt
 
 - **Morceaux** (colonne de gauche) : « + Nouveau » crée un morceau. Cliquer sur un morceau le charge et lance son drone.
 - **Drone / Synthé / Harmonium / Basse / Batterie** : cinq gros boutons en haut du morceau, verts quand la partie
-  est active ; un toucher l'éteint, un autre la rallume. « Drone » couvre le synthé, l'harmonium et la basse :
-  éteint, les trois se taisent même si leurs boutons restent verts. Une partie éteinte disparaît de l'écran mais garde ses notes et ses
+  est active ; un toucher l'éteint, un autre la rallume. « Drone » couvre le synthé et l'harmonium : éteint, les
+  deux se taisent même si leurs boutons restent verts. La basse et la batterie sont indépendantes. Une partie éteinte disparaît de l'écran mais garde ses notes et ses
   réglages.
 - **Annuler / Rétablir et Versions** : chaque modification du morceau crée une version (les modifications à moins de
   4 secondes d'intervalle sont regroupées) ; 40 versions sont gardées par morceau. « ↶ Annuler » revient à la
