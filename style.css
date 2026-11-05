@@ -120,6 +120,8 @@ input[type="range"] { touch-action: pan-y; accent-color: var(--green); }
   text-transform: uppercase;
 }
 .ctl input[type="range"] { width: 130px; }
+.ctl.wide { flex: 1 1 220px; min-width: 0; }
+.ctl.wide input[type="range"] { flex: 1; width: auto; min-width: 160px; }
 .ctl input[type="number"] {
   width: 74px;
   padding: 4px 6px;
@@ -344,7 +346,9 @@ input[type="range"] { touch-action: pan-y; accent-color: var(--green); }
   font-size: 13px;
   letter-spacing: 0.08em;
 }
-.section-title .level input { width: 150px; }
+.section-title .level { flex: 1 1 260px; min-width: 0; }
+.section-title .level + .spacer { display: none; }
+.section-title .level input { flex: 1; width: auto; min-width: 140px; }
 .section-title .level .db { min-width: 58px; font-family: var(--type); text-transform: none; letter-spacing: 0; color: var(--green); font-variant-numeric: tabular-nums; }
 
 .hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
@@ -402,7 +406,8 @@ input[type="range"] { touch-action: pan-y; accent-color: var(--green); }
   text-align: center;
 }
 .section-title .bpm-label { font-size: 13px; letter-spacing: 0.08em; }
-.section-title #bpm-slider { width: 160px; }
+.section-title #bpm-slider { flex: 1 1 200px; width: auto; min-width: 160px; }
+.section.kick .section-title .spacer { display: none; }
 
 .loops-row {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
@@ -448,7 +453,8 @@ input[type="range"] { touch-action: pan-y; accent-color: var(--green); }
 .track-name { font-family: var(--cond); font-size: 16px; letter-spacing: 0.06em; text-transform: uppercase; }
 .track-sound { font-size: 12px; color: var(--muted); }
 .track .level { display: flex; align-items: center; gap: 6px; font-family: var(--cond); font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }
-.track .level input { width: 110px; }
+.track .level { grid-column: 1 / -1; min-width: 0; }
+.track .level input { flex: 1; width: auto; min-width: 120px; }
 .steps { display: grid; grid-template-columns: repeat(var(--cols, 8), minmax(22px, 1fr)); gap: 5px; }
 .seg.small button { padding: 5px 11px 4px; font-size: 13px; }
 .step {
@@ -604,6 +610,7 @@ input[type="range"] { touch-action: pan-y; accent-color: var(--green); }
   .side > * { flex-shrink: 0; }
   .list { flex: 0 1 auto; min-height: 72px; max-height: 24vh; }
   .top { flex-wrap: wrap; gap: 10px; padding: 10px 16px; }
+  .ctl.wide { flex-basis: 100%; }
   .main { padding: 16px; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
   .grid { gap: 4px; grid-template-columns: 44px repeat(12, 1fr); }
   .cell { min-height: 40px; }
@@ -634,7 +641,8 @@ input[type="range"] { touch-action: pan-y; accent-color: var(--green); }
   .cell .note { font-size: 13px; }
   .col-head { font-size: 13px; height: 24px; }
   .section-title { flex-wrap: wrap; row-gap: 8px; }
-  .section-title .level input { width: 90px; }
+  .section-title .level { flex: 1 1 100%; order: 2; }
+  .section-title .spacer { display: none; }
   .section-title #bpm-slider { width: 100%; }
   .track { grid-template-columns: 1fr; }
   .track.head .track-head { display: none; }

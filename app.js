@@ -922,11 +922,11 @@
               ${def.sounds.length > 1
                 ? `<select class="sel" data-sound="${id}">${def.sounds.map(sd => `<option value="${sd.id}" ${sd.id === t.sound ? 'selected' : ''}>${sd.label}</option>`).join('')}</select>`
                 : `<span class="track-sound">${def.sounds[0].label}</span>`}
-              <label class="level">Niveau <input type="range" id="level-${id}" min="-36" max="12" step="0.5"><span class="db" id="level-${id}-db"></span></label>
             </div>
             <div class="steps">
               ${t.steps.map((v, i) => `<button class="step ${v ? 'on' : ''} ${i % p.rhythm.div ? '' : 'beat'}" data-step="${id}" data-i="${i}" aria-label="${def.label}, case ${i + 1}" aria-pressed="${v ? 'true' : 'false'}"></button>`).join('')}
             </div>
+            <label class="level">Niveau <input type="range" id="level-${id}" min="-36" max="12" step="0.5"><span class="db" id="level-${id}-db"></span></label>
           </div>`; }).join('')}
         </div>
         <div class="hint">Une ligne par instrument : ON/OFF, son, niveau, puis les cases de la boucle (les temps sont numérotés, « · » sont les subdivisions). Toucher une case y met ou enlève une frappe. « Boucles » : combien de fois la boucle est jouée, ∞ pour sans fin. « Temps » : longueur de la boucle ; « Cases par temps » : finesse de la grille (2 = croches, 4 = doubles-croches, 3 = triolets).</div>
