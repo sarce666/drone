@@ -49,10 +49,13 @@ affichent « Nouvelle version disponible » à leur prochaine ouverture. Dépôt
   la banque (Do2 à Ré5).
 - **Rythme** : un séquenceur à cases. Tempo en BPM (champ, boutons − / +, curseur) commun aux trois pistes, compteur
   de temps (1 à 4) qui bat la mesure. Une ligne par instrument (grosse caisse, caisse claire, cymbale) : bouton
-  ON/OFF, choix du son (plusieurs cymbales), niveau, puis 8 cases = une mesure (une case = une croche ; les temps sont
-  numérotés au-dessus). Toucher une case y met ou enlève une frappe ; la case en cours est surlignée pendant la
-  lecture. « Boucles » : combien de fois la mesure est jouée (− / +, ou ∞ pour sans fin) ; une fois les boucles
-  jouées, le rythme s'arrête de lui-même (« fin ») et le drone continue ; « ↻ Relancer » repart de la première boucle.
+  ON/OFF (sur OFF, seule la ligne de titre reste visible), choix du son (plusieurs cymbales), niveau, puis les cases
+  de la boucle (les temps sont numérotés au-dessus, « · » marque les subdivisions). Toucher une case y met ou enlève
+  une frappe ; la case en cours est surlignée pendant la lecture. « Boucles » : combien de fois la boucle est jouée
+  (− / +, ou ∞ pour sans fin) ; une fois les boucles jouées, le rythme s'arrête de lui-même (« fin ») et le drone
+  continue ; « ↻ Relancer » repart de la première boucle. « Temps » : longueur de la boucle, de 1 à 16 temps ;
+  « Cases par temps » : 1, 2 (croches), 3 (triolets) ou 4 (doubles-croches). Quand on change l'un ou l'autre, les
+  frappes existantes gardent leur place dans le temps. Au-delà de 16 cases, la grille passe à la ligne par temps entiers.
   Sons dans `samples/kick`, `samples/snare`, `samples/cymbal` (originaux de `Documents/Binaire/composition/4/Audio`).
 - **Son** (un panneau sous chaque pad) : brillance et résonance du filtre, mouvement du filtre, chorus, saturation.
   Le synthé a en plus « épaisseur » (2 oscillateurs désaccordés). Double-clic sur un curseur pour revenir à la

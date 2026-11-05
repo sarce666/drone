@@ -76,14 +76,35 @@
     ] },
   };
   const PERC_IDS = Object.keys(PERC);
-  // Séquenceur : STEPS cases par boucle, une case = une croche (8 cases = une mesure à 4 temps).
-  const STEPS = 8;
+  // Séquenceur : une boucle = `beats` temps × `div` cases par temps (par défaut 4 temps × 2 = 8 cases).
+  const DEFAULT_BEATS = 4, MAX_BEATS = 16;
+  const DIVS = [1, 2, 3, 4];
   const MAX_LOOPS = 999;
-  // Ancien format « motif » (every/offset en temps) → cases.
+  const stepCount = r => r.beats * r.div;
+  // Cases par ligne de grille : tout sur une ligne si ça tient, sinon on passe à la ligne par temps entiers.
+  function stepCols(r) {
+    const n = stepCount(r), max = window.innerWidth < 600 ? 8 : 16;
+    if (n <= max) return n;
+    return Math.max(r.div, Math.floor(max / r.div) * r.div);
+  }
+  // Ancien format « motif » (every/offset en temps) → cases, sur 4 temps × 2.
   function stepsFromPattern(pattern) {
     const m = /^(\d)\/(\d)$/.exec(pattern || '1/0');
     const every = m ? Number(m[1]) : 1, offset = m ? Number(m[2]) : 0;
-    return Array.from({ length: STEPS }, (_, i) => (i % 2 === 0 && (i / 2) % every === offset) ? 1 : 0);
+    return Array.from({ length: DEFAULT_BEATS * 2 }, (_, i) => (i % 2 === 0 && (i / 2) % every === offset) ? 1 : 0);
+  }
+  // Change la longueur ou la division d'un rythme en gardant les frappes à leur place dans le temps.
+  function resizeRhythm(r, beats, div) {
+    for (const id of PERC_IDS) {
+      const old = r.tracks[id].steps, next = new Array(beats * div).fill(0);
+      old.forEach((v, i) => {
+        const j = i / r.div * div; // position en temps → nouvel index
+        if (v && Number.isInteger(j) && j < next.length) next[j] = 1;
+      });
+      r.tracks[id].steps = next;
+    }
+    r.beats = beats;
+    r.div = div;
   }
   const percUrls = () => PERC_IDS.flatMap(id => PERC[id].sounds.map(sd => sd.url));
   const allSampleUrls = () => [...Array.from({ length: SAMPLE_MAX - SAMPLE_MIN + 1 }, (_, i) => wavUrl(SAMPLE_MIN + i)), ...percUrls()];
@@ -123,6 +144,8 @@
   // p.kick est l'ancien format (grosse caisse seule) ; on le reprend dans rhythm.
   function normalizeRhythm(r, legacyKick) {
     const src = r || { bpm: legacyKick?.bpm, tracks: legacyKick ? { kick: { on: legacyKick.on, level: legacyKick.level } } : {} };
+    const beats = clamp(Math.round(Number(src.beats) || DEFAULT_BEATS), 1, MAX_BEATS);
+    const div = DIVS.includes(Number(src.div)) ? Number(src.div) : 2;
     const tracks = {};
     for (const id of PERC_IDS) {
       const t = src.tracks?.[id] || {};
@@ -131,14 +154,14 @@
         level: clamp(Number(t.level ?? 0.8), 0, 4),
         sound: PERC[id].sounds.some(sd => sd.id === t.sound) ? t.sound : PERC[id].sounds[0].id,
         steps: Array.isArray(t.steps)
-          ? Array.from({ length: STEPS }, (_, i) => t.steps[i] ? 1 : 0)
-          : stepsFromPattern(t.pattern),
+          ? Array.from({ length: beats * div }, (_, i) => t.steps[i] ? 1 : 0)
+          : stepsFromPattern(t.pattern).slice(0, beats * div),
       };
     }
     return {
       bpm: clamp(Math.round(Number(src.bpm) || 80), 30, 240),
       loops: clamp(Math.round(Number(src.loops) || 0), 0, MAX_LOOPS), // 0 = à l'infini
-      tracks,
+      beats, div, tracks,
     };
   }
 
@@ -306,13 +329,13 @@
   }
 
   // ---------- Rythme : séquenceur à cases ----------
-  // Une boucle = STEPS cases (croches). Chaque frappe est planifiée sur l'horloge audio, 200 ms en avance.
+  // Une boucle = beats × div cases. Chaque frappe est planifiée sur l'horloge audio, 200 ms en avance.
   // loops = 0 : à l'infini ; sinon le rythme s'arrête de lui-même après N boucles (le drone continue).
   const rhythm = {
     buffers: new Map(), // url → AudioBuffer
     loading: new Map(),
     running: false, finished: false, pieceId: null,
-    bpm: 80, loops: 0, step: 0, loop: 0, nextStep: 0, timer: null,
+    bpm: 80, loops: 0, beats: DEFAULT_BEATS, div: 2, step: 0, loop: 0, nextStep: 0, timer: null,
     tracks: {},         // id → { on, level, sound, steps[] }
     gains: {},          // id → GainNode
     onStep: null,       // (step, loop) → affichage
@@ -345,7 +368,10 @@
       if (pieceId !== this.pieceId) { this.pieceId = pieceId; this.restart(); }
       this.bpm = cfg.bpm;
       this.loops = cfg.loops;
+      this.beats = cfg.beats;
+      this.div = cfg.div;
       this.tracks = JSON.parse(JSON.stringify(cfg.tracks));
+      if (this.step >= this.beats * this.div) this.step = 0;
       const active = PERC_IDS.filter(id => this.tracks[id].on);
       for (const id of active) {
         this.gain(id).gain.setTargetAtTime(this.tracks[id].level, this.ctx.currentTime, 0.05);
@@ -380,8 +406,8 @@
           src.start(t);
         }
         if (this.onStep) setTimeout(() => this.onStep(step, loop), Math.max(0, (t - now) * 1000));
-        this.nextStep += 30 / this.bpm; // une croche
-        if (step + 1 < STEPS) { this.step = step + 1; continue; }
+        this.nextStep += 60 / this.bpm / this.div; // un temps divisé en `div` cases
+        if (step + 1 < this.beats * this.div) { this.step = step + 1; continue; }
         this.step = 0;
         this.loop = loop + 1;
         if (this.loops && this.loop >= this.loops) {
@@ -750,11 +776,21 @@
           <span class="loop-count" id="loop-count"></span>
           <button class="btn small ghost" id="rhythm-restart" title="Repartir de la première boucle">↻ Relancer</button>
         </div>
-        <div class="tracks">
+        <div class="loops-row">
+          <span class="bpm-label">Temps</span>
+          <button class="btn small" id="beats-minus">−</button>
+          <input id="beats" type="number" min="1" max="${MAX_BEATS}" step="1" inputmode="numeric" title="Nombre de temps dans la boucle">
+          <button class="btn small" id="beats-plus">+</button>
+          <span class="bpm-label">Cases par temps</span>
+          <div class="seg small" id="div">
+            ${DIVS.map(d => `<button data-div="${d}" class="${p.rhythm.div === d ? 'on' : ''}">${d}</button>`).join('')}
+          </div>
+        </div>
+        <div class="tracks" style="--cols: ${stepCols(p.rhythm)}">
           <div class="track head">
             <div class="track-head"></div>
             <div class="steps steps-head">
-              ${Array.from({ length: STEPS }, (_, i) => `<span class="step-no ${i % 2 ? '' : 'beat'}" data-i="${i}">${i % 2 ? '·' : (i / 2) + 1}</span>`).join('')}
+              ${Array.from({ length: stepCount(p.rhythm) }, (_, i) => { const d = p.rhythm.div; return `<span class="step-no ${i % d ? '' : 'beat'}" data-i="${i}">${i % d ? '·' : (i / d) + 1}</span>`; }).join('')}
             </div>
           </div>
           ${PERC_IDS.map(id => { const t = p.rhythm.tracks[id]; const def = PERC[id]; return `
@@ -768,11 +804,11 @@
               <label class="level">Niveau <input type="range" id="level-${id}" min="-36" max="12" step="0.5"><span class="db" id="level-${id}-db"></span></label>
             </div>
             <div class="steps">
-              ${t.steps.map((v, i) => `<button class="step ${v ? 'on' : ''} ${i % 2 ? '' : 'beat'}" data-step="${id}" data-i="${i}" aria-label="${def.label}, case ${i + 1}" aria-pressed="${v ? 'true' : 'false'}"></button>`).join('')}
+              ${t.steps.map((v, i) => `<button class="step ${v ? 'on' : ''} ${i % p.rhythm.div ? '' : 'beat'}" data-step="${id}" data-i="${i}" aria-label="${def.label}, case ${i + 1}" aria-pressed="${v ? 'true' : 'false'}"></button>`).join('')}
             </div>
           </div>`; }).join('')}
         </div>
-        <div class="hint">Une ligne par instrument : ON/OFF, son, niveau, puis les 8 cases d'une mesure (une case = une croche ; les temps sont numérotés). Toucher une case y met ou enlève une frappe. « Boucles » : combien de fois la mesure est jouée, ∞ pour sans fin.</div>
+        <div class="hint">Une ligne par instrument : ON/OFF, son, niveau, puis les cases de la boucle (les temps sont numérotés, « · » sont les subdivisions). Toucher une case y met ou enlève une frappe. « Boucles » : combien de fois la boucle est jouée, ∞ pour sans fin. « Temps » : longueur de la boucle ; « Cases par temps » : finesse de la grille (2 = croches, 4 = doubles-croches, 3 = triolets).</div>
       </div>
 
       ${p.mode !== 'samples' ? `
@@ -892,6 +928,21 @@
       if (!engine.playing) engine.play(); else engine.sync();
     });
 
+    // Longueur de la boucle (temps) et cases par temps : la grille est redessinée.
+    const beatsEl = root.querySelector('#beats');
+    beatsEl.value = r.beats;
+    const setShape = (beats, div) => {
+      resizeRhythm(r, clamp(Math.round(Number(beats) || r.beats), 1, MAX_BEATS), div);
+      commit();
+    };
+    beatsEl.addEventListener('change', () => setShape(beatsEl.value, r.div));
+    beatsEl.addEventListener('keydown', e => { if (e.key === 'Enter') beatsEl.blur(); });
+    root.querySelector('#beats-minus').addEventListener('click', () => setShape(r.beats - 1, r.div));
+    root.querySelector('#beats-plus').addEventListener('click', () => setShape(r.beats + 1, r.div));
+    for (const b of root.querySelectorAll('[data-div]')) {
+      b.addEventListener('click', () => setShape(r.beats, Number(b.dataset.div)));
+    }
+
     const anyOn = () => PERC_IDS.some(id => r.tracks[id].on);
     const beat = root.querySelector('#beat');
     beat.classList.toggle('off', !anyOn());
@@ -903,8 +954,8 @@
       if (shownStep >= 0) for (const el of root.querySelectorAll(`[data-i="${shownStep}"]`)) el.classList.remove('now');
       for (const el of root.querySelectorAll(`[data-i="${step}"]`)) el.classList.add('now');
       shownStep = step;
-      if (step % 2 === 0) {
-        beat.textContent = step / 2 + 1;
+      if (step % r.div === 0) {
+        beat.textContent = step / r.div + 1;
         beat.classList.add('hit');
         setTimeout(() => beat.classList.remove('hit'), 90);
       }

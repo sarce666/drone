@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "style.css"
+        ],
+        "createdAt": "2026-11-05T09:47:30.802Z",
+        "reason": "Agent: .side border-right is the sidebar/main divider of the flyer-style layout (thick paper borders everywhere), pre-existing, not a card accent"
+      }
+    ]
+  }
+}

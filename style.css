@@ -405,7 +405,7 @@ input[type="range"] { touch-action: pan-y; accent-color: var(--green); }
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   margin: 0 0 10px;
 }
-.loops-row #loops {
+.loops-row #loops, .loops-row #beats {
   width: 64px;
   padding: 4px 6px;
   background: #000;
@@ -446,7 +446,8 @@ input[type="range"] { touch-action: pan-y; accent-color: var(--green); }
 .track-sound { font-size: 12px; color: var(--muted); }
 .track .level { display: flex; align-items: center; gap: 6px; font-family: var(--cond); font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }
 .track .level input { width: 110px; }
-.steps { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; }
+.steps { display: grid; grid-template-columns: repeat(var(--cols, 8), minmax(22px, 1fr)); gap: 5px; }
+.seg.small button { padding: 5px 11px 4px; font-size: 13px; }
 .step {
   height: 40px;
   border: 2px solid var(--muted);
@@ -635,7 +636,7 @@ input[type="range"] { touch-action: pan-y; accent-color: var(--green); }
   .track.head { padding: 0; }
   .steps { gap: 4px; }
   .step { height: 44px; }
-  .loops-row #loops { width: 56px; }
+  .loops-row #loops, .loops-row #beats { width: 56px; }
   .piece-name { font-size: 26px; }
   .brand { font-size: 28px; }
   .seg button { padding: 6px 10px 5px; font-size: 12px; }
