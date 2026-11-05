@@ -50,9 +50,9 @@ affichent « Nouvelle version disponible » à leur prochaine ouverture. Dépôt
 
 - **Morceaux** (colonne de gauche) : « + Nouveau » crée un morceau. Cliquer sur un morceau le charge et lance son drone.
 - **Drone / Synthé / Harmonium / Basse / Batterie** : cinq gros boutons en haut du morceau, verts quand la partie
-  est active ; un toucher l'éteint, un autre la rallume. « Drone » couvre le synthé et l'harmonium : éteint, les
-  deux se taisent même si leurs boutons restent verts ; rallumer Synthé ou Harmonium rallume Drone. La basse et la
-  batterie sont indépendantes. Une partie éteinte disparaît de l'écran mais garde ses notes et ses
+  est active ; un toucher l'éteint, un autre la rallume. « Drone » est l'interrupteur général du synthé, de
+  l'harmonium et de la basse : éteint, les trois s'arrêtent d'un coup ; rallumé, les trois repartent. Rallumer
+  Synthé, Harmonium ou Basse seul rallume Drone avec cette seule partie. La batterie est indépendante. Une partie éteinte disparaît de l'écran mais garde ses notes et ses
   réglages.
 - **Annuler / Rétablir et Versions** : chaque modification du morceau crée une version (les modifications à moins de
   4 secondes d'intervalle sont regroupées) ; 40 versions sont gardées par morceau. « ↶ Annuler » revient à la

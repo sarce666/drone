@@ -35,7 +35,8 @@
   ];
   const synthOn = p => p.parts.drone && p.parts.synth;
   const sampleOn = p => p.parts.drone && p.parts.harmonium;
-  const bassOn = p => p.parts.bass; // indépendante de Drone, comme la batterie
+  const bassOn = p => p.parts.drone && p.parts.bass;
+  const DRONE_PARTS = ['synth', 'harmonium', 'bass']; // ce que le bouton Drone arrête et relance d'un coup
   const padOn = { samples: sampleOn, bass: bassOn };
   const drumsOn = p => p.parts.drums;
   const HISTORY_KEY = 'drones-history-v1';
@@ -949,7 +950,7 @@
     const hv = history.info(p);
     main.innerHTML = `
       <div class="parts" id="parts">
-        ${PARTS.map(part => `<button class="part ${p.parts[part.id] ? 'on' : ''} ${(part.id === 'synth' || part.id === 'harmonium') && !p.parts.drone ? 'dim' : ''}" data-part="${part.id}" aria-pressed="${p.parts[part.id] ? 'true' : 'false'}">${part.label}</button>`).join('')}
+        ${PARTS.map(part => `<button class="part ${p.parts[part.id] ? 'on' : ''} ${DRONE_PARTS.includes(part.id) && !p.parts.drone ? 'dim' : ''}" data-part="${part.id}" aria-pressed="${p.parts[part.id] ? 'true' : 'false'}">${part.label}</button>`).join('')}
       </div>
 
       <div class="piece-head">
@@ -1073,9 +1074,15 @@
     for (const b of main.querySelectorAll('[data-part]')) {
       b.addEventListener('click', () => {
         const id = b.dataset.part;
-        p.parts[id] = !p.parts[id];
-        // Allumer le synthé ou l'harmonium alors que Drone est éteint rallume Drone : quelque chose apparaît toujours.
-        if (p.parts[id] && (id === 'synth' || id === 'harmonium') && !p.parts.drone) p.parts.drone = true;
+        if (DRONE_PARTS.includes(id) && !p.parts.drone) {
+          // Drone éteint : toucher Synthé, Harmonium ou Basse rallume Drone avec cette seule partie.
+          p.parts.drone = true;
+          for (const k of DRONE_PARTS) p.parts[k] = k === id;
+        } else {
+          p.parts[id] = !p.parts[id];
+          // Drone : éteint, synthé, harmonium et basse s'arrêtent d'un coup ; rallumé, les trois repartent.
+          if (id === 'drone' && p.parts.drone) for (const k of DRONE_PARTS) p.parts[k] = true;
+        }
         commit();
       });
     }
