@@ -76,13 +76,15 @@
     ] },
   };
   const PERC_IDS = Object.keys(PERC);
-  const PATTERNS = [
-    { id: '1/0', label: 'chaque temps', every: 1, offset: 0 },
-    { id: '2/0', label: 'temps 1 et 3', every: 2, offset: 0 },
-    { id: '2/1', label: 'temps 2 et 4', every: 2, offset: 1 },
-    { id: '4/0', label: 'temps 1 sur 4', every: 4, offset: 0 },
-    { id: '4/2', label: 'temps 3 sur 4', every: 4, offset: 2 },
-  ];
+  // Séquenceur : STEPS cases par boucle, une case = une croche (8 cases = une mesure à 4 temps).
+  const STEPS = 8;
+  const MAX_LOOPS = 999;
+  // Ancien format « motif » (every/offset en temps) → cases.
+  function stepsFromPattern(pattern) {
+    const m = /^(\d)\/(\d)$/.exec(pattern || '1/0');
+    const every = m ? Number(m[1]) : 1, offset = m ? Number(m[2]) : 0;
+    return Array.from({ length: STEPS }, (_, i) => (i % 2 === 0 && (i / 2) % every === offset) ? 1 : 0);
+  }
   const percUrls = () => PERC_IDS.flatMap(id => PERC[id].sounds.map(sd => sd.url));
   const allSampleUrls = () => [...Array.from({ length: SAMPLE_MAX - SAMPLE_MIN + 1 }, (_, i) => wavUrl(SAMPLE_MIN + i)), ...percUrls()];
 
@@ -128,10 +130,16 @@
         on: !!t.on,
         level: clamp(Number(t.level ?? 0.8), 0, 4),
         sound: PERC[id].sounds.some(sd => sd.id === t.sound) ? t.sound : PERC[id].sounds[0].id,
-        pattern: PATTERNS.some(pt => pt.id === t.pattern) ? t.pattern : '1/0',
+        steps: Array.isArray(t.steps)
+          ? Array.from({ length: STEPS }, (_, i) => t.steps[i] ? 1 : 0)
+          : stepsFromPattern(t.pattern),
       };
     }
-    return { bpm: clamp(Math.round(Number(src.bpm) || 80), 30, 240), tracks };
+    return {
+      bpm: clamp(Math.round(Number(src.bpm) || 80), 30, 240),
+      loops: clamp(Math.round(Number(src.loops) || 0), 0, MAX_LOOPS), // 0 = à l'infini
+      tracks,
+    };
   }
 
   function normalizePiece(p) {
@@ -297,14 +305,18 @@
     }
   }
 
-  // ---------- Rythme : percussions au tempo ----------
-  // Un seul compteur de temps ; chaque frappe est planifiée sur l'horloge audio, 200 ms en avance.
+  // ---------- Rythme : séquenceur à cases ----------
+  // Une boucle = STEPS cases (croches). Chaque frappe est planifiée sur l'horloge audio, 200 ms en avance.
+  // loops = 0 : à l'infini ; sinon le rythme s'arrête de lui-même après N boucles (le drone continue).
   const rhythm = {
     buffers: new Map(), // url → AudioBuffer
     loading: new Map(),
-    running: false, bpm: 80, beat: 0, nextBeat: 0, timer: null,
-    tracks: {},         // id → { on, level, sound, pattern }
+    running: false, finished: false, pieceId: null,
+    bpm: 80, loops: 0, step: 0, loop: 0, nextStep: 0, timer: null,
+    tracks: {},         // id → { on, level, sound, steps[] }
     gains: {},          // id → GainNode
+    onStep: null,       // (step, loop) → affichage
+    onEnd: null,        // () → affichage de fin
 
     get ctx() { return Tone.getContext().rawContext; },
 
@@ -327,9 +339,12 @@
       return this.gains[id];
     },
 
-    // Applique la configuration du morceau ; démarre ou arrête le compteur selon les pistes actives.
-    apply(cfg) {
+    // Applique la configuration du morceau ; démarre ou arrête le séquenceur selon les pistes actives.
+    // Un changement de morceau repart de la première boucle.
+    apply(cfg, pieceId) {
+      if (pieceId !== this.pieceId) { this.pieceId = pieceId; this.restart(); }
       this.bpm = cfg.bpm;
+      this.loops = cfg.loops;
       this.tracks = JSON.parse(JSON.stringify(cfg.tracks));
       const active = PERC_IDS.filter(id => this.tracks[id].on);
       for (const id of active) {
@@ -337,24 +352,26 @@
         this.load(this.urlFor(id)).catch(() => {});
       }
       if (!active.length) { this.stop(); return; }
-      if (this.running) return;
+      if (this.running || this.finished) return;
       this.running = true;
-      this.beat = 0;
-      this.nextBeat = this.ctx.currentTime + 0.05;
+      this.step = 0;
+      this.loop = 0;
+      this.nextStep = this.ctx.currentTime + 0.05;
       this.tick();
       this.timer = setInterval(() => this.tick(), 50);
     },
 
+    // Repart de la première boucle au prochain apply().
+    restart() { this.stop(); this.finished = false; },
+
     tick() {
       const now = this.ctx.currentTime;
-      if (this.nextBeat < now - 0.5) this.nextBeat = now + 0.02; // l'onglet a été mis en pause
-      while (this.nextBeat < now + 0.2) {
-        const t = this.nextBeat, beat = this.beat;
+      if (this.nextStep < now - 0.5) this.nextStep = now + 0.02; // l'onglet a été mis en pause
+      while (this.running && this.nextStep < now + 0.2) {
+        const t = this.nextStep, step = this.step, loop = this.loop;
         for (const id of PERC_IDS) {
           const tr = this.tracks[id];
-          if (!tr?.on) continue;
-          const pat = PATTERNS.find(x => x.id === tr.pattern) || PATTERNS[0];
-          if (beat % pat.every !== pat.offset) continue;
+          if (!tr?.on || !tr.steps[step]) continue;
           const buf = this.buffers.get(this.urlFor(id));
           if (!buf) continue;
           const src = this.ctx.createBufferSource();
@@ -362,14 +379,16 @@
           src.connect(this.gain(id));
           src.start(t);
         }
-        const beatEl = $('#beat');
-        if (beatEl) setTimeout(() => {
-          beatEl.textContent = (beat % 4) + 1;
-          beatEl.classList.add('hit');
-          setTimeout(() => beatEl.classList.remove('hit'), 90);
-        }, Math.max(0, (t - now) * 1000));
-        this.beat = beat + 1;
-        this.nextBeat += 60 / this.bpm;
+        if (this.onStep) setTimeout(() => this.onStep(step, loop), Math.max(0, (t - now) * 1000));
+        this.nextStep += 30 / this.bpm; // une croche
+        if (step + 1 < STEPS) { this.step = step + 1; continue; }
+        this.step = 0;
+        this.loop = loop + 1;
+        if (this.loops && this.loop >= this.loops) {
+          this.finished = true;
+          this.stop();
+          if (this.onEnd) setTimeout(() => this.onEnd(), Math.max(0, (this.nextStep - now) * 1000));
+        }
       }
     },
 
@@ -410,6 +429,7 @@
     async play() {
       await this.ensure();
       this.playing = true;
+      rhythm.restart();
       this.sync();
       renderTransport();
       renderList();
@@ -457,7 +477,7 @@
       for (const midi of [...this.samples.keys()]) if (!(midi in wantedS)) this.stopSample(midi);
       if (p) { this.sampleBus.gain.rampTo(p.sampleLevel, 0.2); applyFx(this.sampleFx, p.sampleSound); }
 
-      if (p) rhythm.apply(p.rhythm); else rhythm.stop();
+      if (p) rhythm.apply(p.rhythm, p.id); else rhythm.stop();
     },
 
     release(midi) {
@@ -721,18 +741,38 @@
           <span class="bpm-label">BPM</span>
           <input id="bpm-slider" type="range" min="30" max="240" step="1">
         </div>
+        <div class="loops-row">
+          <span class="bpm-label">Boucles</span>
+          <button class="btn small" id="loops-minus">−</button>
+          <input id="loops" type="text" inputmode="numeric" title="Nombre de boucles ; ∞ ou 0 pour jouer sans fin">
+          <button class="btn small" id="loops-plus">+</button>
+          <button class="btn small ${p.rhythm.loops ? '' : 'on'}" id="loops-inf" title="Jouer sans fin">∞</button>
+          <span class="loop-count" id="loop-count"></span>
+          <button class="btn small ghost" id="rhythm-restart" title="Repartir de la première boucle">↻ Relancer</button>
+        </div>
         <div class="tracks">
+          <div class="track head">
+            <div class="track-head"></div>
+            <div class="steps steps-head">
+              ${Array.from({ length: STEPS }, (_, i) => `<span class="step-no ${i % 2 ? '' : 'beat'}" data-i="${i}">${i % 2 ? '·' : (i / 2) + 1}</span>`).join('')}
+            </div>
+          </div>
           ${PERC_IDS.map(id => { const t = p.rhythm.tracks[id]; const def = PERC[id]; return `
-          <div class="track" data-track="${id}">
-            <span class="track-name">${def.label}</span>
-            ${def.sounds.length > 1
-              ? `<select class="sel" data-sound="${id}">${def.sounds.map(sd => `<option value="${sd.id}" ${sd.id === t.sound ? 'selected' : ''}>${sd.label}</option>`).join('')}</select>`
-              : `<span class="track-sound">${def.sounds[0].label}</span>`}
-            <select class="sel" data-pattern="${id}">${PATTERNS.map(pt => `<option value="${pt.id}" ${pt.id === t.pattern ? 'selected' : ''}>${pt.label}</option>`).join('')}</select>
-            <label class="level">Niveau <input type="range" id="level-${id}" min="-36" max="12" step="0.5"><span class="db" id="level-${id}-db"></span></label>
-            <button class="btn small ${t.on ? 'on' : ''}" data-toggle="${id}">${t.on ? 'ON' : 'OFF'}</button>
+          <div class="track ${t.on ? '' : 'muted'}" data-track="${id}">
+            <div class="track-head">
+              <button class="btn small ${t.on ? 'on' : ''}" data-toggle="${id}">${t.on ? 'ON' : 'OFF'}</button>
+              <span class="track-name">${def.label}</span>
+              ${def.sounds.length > 1
+                ? `<select class="sel" data-sound="${id}">${def.sounds.map(sd => `<option value="${sd.id}" ${sd.id === t.sound ? 'selected' : ''}>${sd.label}</option>`).join('')}</select>`
+                : `<span class="track-sound">${def.sounds[0].label}</span>`}
+              <label class="level">Niveau <input type="range" id="level-${id}" min="-36" max="12" step="0.5"><span class="db" id="level-${id}-db"></span></label>
+            </div>
+            <div class="steps">
+              ${t.steps.map((v, i) => `<button class="step ${v ? 'on' : ''} ${i % 2 ? '' : 'beat'}" data-step="${id}" data-i="${i}" aria-label="${def.label}, case ${i + 1}" aria-pressed="${v ? 'true' : 'false'}"></button>`).join('')}
+            </div>
           </div>`; }).join('')}
         </div>
+        <div class="hint">Une ligne par instrument : ON/OFF, son, niveau, puis les 8 cases d'une mesure (une case = une croche ; les temps sont numérotés). Toucher une case y met ou enlève une frappe. « Boucles » : combien de fois la mesure est jouée, ∞ pour sans fin.</div>
       </div>
 
       ${p.mode !== 'samples' ? `
@@ -824,9 +864,62 @@
     root.querySelector('#bpm-minus').addEventListener('click', () => setBpm(r.bpm - 1));
     root.querySelector('#bpm-plus').addEventListener('click', () => setBpm(r.bpm + 1));
 
+    // Boucles : nombre, ou ∞ (0).
+    const loopsEl = root.querySelector('#loops');
+    const infBtn = root.querySelector('#loops-inf');
+    const loopCount = root.querySelector('#loop-count');
+    const showLoops = () => {
+      loopsEl.value = r.loops ? String(r.loops) : '∞';
+      infBtn.classList.toggle('on', !r.loops);
+    };
+    const setLoops = v => {
+      const n = Math.round(Number(String(v).trim()));
+      r.loops = Number.isFinite(n) ? clamp(n, 0, MAX_LOOPS) : 0;
+      showLoops();
+      save();
+      rhythm.restart();
+      engine.sync();
+    };
+    showLoops();
+    loopsEl.addEventListener('change', () => setLoops(loopsEl.value));
+    loopsEl.addEventListener('keydown', e => { if (e.key === 'Enter') loopsEl.blur(); });
+    loopsEl.addEventListener('focus', () => loopsEl.select());
+    root.querySelector('#loops-minus').addEventListener('click', () => setLoops(Math.max(0, r.loops - 1)));
+    root.querySelector('#loops-plus').addEventListener('click', () => setLoops(r.loops + 1));
+    infBtn.addEventListener('click', () => setLoops(0));
+    root.querySelector('#rhythm-restart').addEventListener('click', () => {
+      rhythm.restart();
+      if (!engine.playing) engine.play(); else engine.sync();
+    });
+
     const anyOn = () => PERC_IDS.some(id => r.tracks[id].on);
     const beat = root.querySelector('#beat');
     beat.classList.toggle('off', !anyOn());
+
+    // Affichage pendant la lecture : case courante, compteur de temps, compteur de boucles.
+    let shownStep = -1;
+    rhythm.onStep = (step, loop) => {
+      if (!root.isConnected) return;
+      if (shownStep >= 0) for (const el of root.querySelectorAll(`[data-i="${shownStep}"]`)) el.classList.remove('now');
+      for (const el of root.querySelectorAll(`[data-i="${step}"]`)) el.classList.add('now');
+      shownStep = step;
+      if (step % 2 === 0) {
+        beat.textContent = step / 2 + 1;
+        beat.classList.add('hit');
+        setTimeout(() => beat.classList.remove('hit'), 90);
+      }
+      loopCount.textContent = r.loops ? `${loop + 1} / ${r.loops}` : `${loop + 1}`;
+      loopCount.classList.remove('done');
+    };
+    rhythm.onEnd = () => {
+      if (!root.isConnected) return;
+      if (shownStep >= 0) for (const el of root.querySelectorAll(`[data-i="${shownStep}"]`)) el.classList.remove('now');
+      shownStep = -1;
+      beat.textContent = '';
+      loopCount.textContent = 'fin';
+      loopCount.classList.add('done');
+    };
+    if (rhythm.finished && rhythm.pieceId === p.id) rhythm.onEnd();
 
     for (const b of root.querySelectorAll('[data-toggle]')) {
       const id = b.dataset.toggle;
@@ -835,16 +928,25 @@
         t.on = !t.on;
         b.textContent = t.on ? 'ON' : 'OFF';
         b.classList.toggle('on', t.on);
+        b.closest('.track').classList.toggle('muted', !t.on);
         beat.classList.toggle('off', !anyOn());
         save();
+        if (t.on && rhythm.finished) rhythm.restart();
         if (t.on && !engine.playing) engine.play(); else engine.sync();
       });
     }
     for (const sel of root.querySelectorAll('[data-sound]')) {
       sel.addEventListener('change', () => { r.tracks[sel.dataset.sound].sound = sel.value; save(); engine.sync(); });
     }
-    for (const sel of root.querySelectorAll('[data-pattern]')) {
-      sel.addEventListener('change', () => { r.tracks[sel.dataset.pattern].pattern = sel.value; save(); engine.sync(); });
+    for (const b of root.querySelectorAll('[data-step]')) {
+      b.addEventListener('click', () => {
+        const t = r.tracks[b.dataset.step], i = Number(b.dataset.i);
+        t.steps[i] = t.steps[i] ? 0 : 1;
+        b.classList.toggle('on', !!t.steps[i]);
+        b.setAttribute('aria-pressed', t.steps[i] ? 'true' : 'false');
+        save();
+        engine.sync();
+      });
     }
   }
 

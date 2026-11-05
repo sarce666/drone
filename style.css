@@ -401,17 +401,80 @@ input[type="range"] { touch-action: pan-y; accent-color: var(--green); }
 .section-title .bpm-label { font-size: 13px; letter-spacing: 0.08em; }
 .section-title #bpm-slider { width: 160px; }
 
-.tracks { display: flex; flex-direction: column; gap: 8px; }
+.loops-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 0 0 10px;
+}
+.loops-row #loops {
+  width: 64px;
+  padding: 4px 6px;
+  background: #000;
+  border: 2px solid var(--paper);
+  color: var(--paper);
+  font-family: var(--cond);
+  font-size: 20px;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+.loop-count {
+  min-width: 70px;
+  font-family: var(--type);
+  font-size: 14px;
+  color: var(--green);
+  font-variant-numeric: tabular-nums;
+}
+.loop-count.done { color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; }
+
+/* Séquenceur : une ligne par instrument, réglages à gauche, 8 cases à droite. */
+.tracks { display: flex; flex-direction: column; gap: 6px; }
 .track {
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 440px);
+  align-items: center;
+  gap: 8px 16px;
   padding: 8px 10px;
   border: 2px solid var(--paper);
   background: #000;
 }
-.track-name { font-family: var(--cond); font-size: 16px; letter-spacing: 0.06em; text-transform: uppercase; min-width: 130px; }
-.track-sound { font-size: 12px; color: var(--muted); min-width: 110px; }
-.track .level { display: flex; align-items: center; gap: 6px; font-family: var(--cond); font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; margin-left: auto; }
-.track .level input { width: 130px; }
+.track.head { border: 0; padding: 0 10px; }
+.track.muted .steps { opacity: 0.45; }
+.track-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.track-name { font-family: var(--cond); font-size: 16px; letter-spacing: 0.06em; text-transform: uppercase; }
+.track-sound { font-size: 12px; color: var(--muted); }
+.track .level { display: flex; align-items: center; gap: 6px; font-family: var(--cond); font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }
+.track .level input { width: 110px; }
+.steps { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; }
+.step {
+  height: 40px;
+  border: 2px solid var(--muted);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  position: relative;
+  transition: background 0.08s, border-color 0.08s;
+}
+.step.beat { border-color: var(--paper); }
+.step.on { background: var(--green); border-color: var(--green); }
+.step.on::before {
+  content: "";
+  position: absolute; left: 50%; top: 6px;
+  width: 7px; height: 7px; margin-left: -3.5px;
+  border-radius: 50%;
+  background: #000;
+}
+.step.now { box-shadow: inset 0 0 0 3px var(--purple), 0 0 0 2px var(--purple); }
+.step.on.now { background: var(--paper); border-color: var(--paper); }
+.step-no {
+  display: flex; align-items: center; justify-content: center;
+  height: 22px;
+  font-family: var(--cond);
+  font-size: 14px;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+}
+.step-no.beat { color: var(--paper); }
+.step-no.now { background: var(--purple); color: var(--paper); }
 .track .level .db { min-width: 58px; font-family: var(--type); text-transform: none; letter-spacing: 0; color: var(--green); font-variant-numeric: tabular-nums; }
 .sel {
   padding: 5px 8px;
@@ -564,8 +627,12 @@ input[type="range"] { touch-action: pan-y; accent-color: var(--green); }
   .section-title { flex-wrap: wrap; row-gap: 8px; }
   .section-title .level input { width: 90px; }
   .section-title #bpm-slider { width: 100%; }
-  .track .level { margin-left: 0; width: 100%; }
-  .track-name { min-width: 0; }
+  .track { grid-template-columns: 1fr; }
+  .track.head .track-head { display: none; }
+  .track.head { padding: 0; }
+  .steps { gap: 4px; }
+  .step { height: 44px; }
+  .loops-row #loops { width: 56px; }
   .piece-name { font-size: 26px; }
   .brand { font-size: 28px; }
   .seg button { padding: 6px 10px 5px; font-size: 12px; }
