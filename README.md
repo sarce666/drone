@@ -85,9 +85,17 @@ Mise en place, une fois :
    Generate new token. Nom libre, expiration au choix, « Only select repositories » → `drone-data`,
    Permissions → Repository permissions → **Contents : Read and write**. Copier le jeton.
 3. Dans l'app, colonne de gauche, ouvrir « Synchronisation non configurée », saisir le dépôt (`sarce666/drone-data`)
-   et le jeton, puis « Enregistrer ». À faire sur chaque appareil.
+   et le jeton, puis « Enregistrer ».
 
 Le jeton reste dans l'app, sur l'appareil ; il ne donne accès qu'à ce dépôt.
+
+**Ajouter un appareil** (téléphone, autre tablette) sans retaper le jeton : sur l'appareil déjà configuré, ouvrir la
+synchronisation et « Copier le code » (le code contient le dépôt et le jeton ; entre un iPad et un iPhone du même
+compte iCloud, le presse-papiers universel suffit, sinon l'envoyer par AirDrop ou Notes). Sur le nouvel appareil,
+installer l'app, puis « Récupérer mes morceaux » sur l'écran d'accueil et « Coller le code » : la configuration est
+reprise et les morceaux arrivent aussitôt (« 3 morceaux récupérés »). Le même champ accepte aussi un code collé
+directement. Sur l'iPhone, installer l'app sur l'écran d'accueil **avant** de coller le code : l'app installée a sa
+propre mémoire, séparée de Safari.
 
 ## Habillage
 

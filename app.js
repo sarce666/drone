@@ -841,8 +841,12 @@
       main.innerHTML = `<div class="welcome"><h1>VETERAN</h1>
         <p>Créez un morceau, choisissez sa tonique, touchez les notes qui doivent sonner, et c'est enregistré.
         Ensuite, un clic sur le morceau dans la liste lance son drone.</p>
-        <p><button class="btn" id="welcome-new">+ Nouveau morceau</button></p></div>`;
+        <p><button class="btn" id="welcome-new">+ Nouveau morceau</button>
+        <button class="btn ghost" id="welcome-sync">Récupérer mes morceaux</button></p>
+        <p class="hint">Vos morceaux sont déjà sur un autre appareil ? Sur celui-ci, ouvrez la synchronisation et « Copier le
+        code » ; ici, « Récupérer mes morceaux » puis « Coller le code », et ils arrivent.</p></div>`;
       main.querySelector('#welcome-new').addEventListener('click', newPiece);
+      main.querySelector('#welcome-sync').addEventListener('click', openSyncPanel);
       return;
     }
 
@@ -1437,10 +1441,13 @@
         }
         // 2. Fusionner.
         const before = JSON.stringify({ p: state.pieces, d: state.deleted, a4: state.a4 });
+        const beforeCount = state.pieces.length;
         if (remote) merge(remote);
         const merged = { pieces: state.pieces, deleted: state.deleted, a4: state.a4, savedAt: Date.now() };
         const localChanged = JSON.stringify({ p: state.pieces, d: state.deleted, a4: state.a4 }) !== before;
         if (localChanged) {
+          const arrived = state.pieces.length - beforeCount;
+          if (!this.cfg.lastSync && arrived > 0) showToast(arrived + (arrived > 1 ? ' morceaux récupérés.' : ' morceau récupéré.'), 'OK', () => { $('#toast').hidden = true; });
           for (const p of state.pieces) hashes.set(p.id, pieceHash(p));
           localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
           history.seed();
@@ -1489,6 +1496,64 @@
     },
   };
 
+  // Code de transfert : dépôt + jeton dans une chaîne à copier d'un appareil à l'autre
+  // (presse-papiers universel iPad → iPhone, AirDrop, Notes…). Rien ne transite par un tiers.
+  const SYNC_CODE_PREFIX = 'VETERAN-SYNC:';
+  function syncCodeFromCfg(cfg) {
+    return SYNC_CODE_PREFIX + utf8Encode(JSON.stringify({ repo: cfg.repo, token: cfg.token })).replace(/=+$/, '');
+  }
+  function parseSyncCode(text) {
+    const m = String(text || '').trim().match(/VETERAN-SYNC:([A-Za-z0-9+/=_-]+)/);
+    if (!m) return null;
+    try {
+      const j = JSON.parse(utf8Decode(m[1].replace(/-/g, '+').replace(/_/g, '/')));
+      if (typeof j.repo === 'string' && typeof j.token === 'string' && j.repo && j.token) return { repo: j.repo, token: j.token };
+    } catch (e) { /* code illisible */ }
+    return null;
+  }
+  async function applySyncCode(text) {
+    const c = parseSyncCode(text);
+    if (!c) { sync.set('missing', 'code non reconnu (il commence par VETERAN-SYNC:)'); return false; }
+    const ok = sync.saveCfg(c.repo, c.token);
+    renderSyncSettings();
+    if (ok) showToast('Configuration reprise : ' + sync.cfg.repo + ' · récupération des morceaux…', 'OK', () => { $('#toast').hidden = true; });
+    return ok;
+  }
+  async function copySyncCode() {
+    const code = syncCodeFromCfg(sync.cfg);
+    try {
+      await navigator.clipboard.writeText(code);
+      showToast('Code copié. Sur l\'autre appareil : « Récupérer mes morceaux » → « Coller le code ».', 'OK', () => { $('#toast').hidden = true; });
+    } catch (e) {
+      // Presse-papiers refusé : on montre le code pour une copie manuelle.
+      const el = $('#sync-code');
+      el.classList.remove('secret');
+      el.value = code;
+      el.focus(); el.select();
+      showToast('Copiez ce code (tout sélectionné) et collez-le sur l\'autre appareil.', 'OK', () => { $('#toast').hidden = true; });
+    }
+  }
+  async function pasteSyncCode() {
+    let text = $('#sync-code').value;
+    if (!parseSyncCode(text) && navigator.clipboard?.readText) {
+      try { text = await navigator.clipboard.readText(); } catch (e) { /* refusé : on garde le champ */ }
+    }
+    if (!parseSyncCode(text)) {
+      sync.set('missing', 'collez le code dans le champ « Code d\'un autre appareil »');
+      $('#sync-code').focus();
+      return;
+    }
+    $('#sync-code').value = '';
+    $('#sync-code').classList.add('secret');
+    applySyncCode(text);
+  }
+  function openSyncPanel() {
+    const box = $('#sync-settings');
+    box.open = true;
+    box.scrollIntoView({ block: 'nearest' });
+    $('#sync-code').focus();
+  }
+
   function loadSyncCfg() {
     try { return { repo: '', token: '', lastSync: 0, ...JSON.parse(localStorage.getItem(SYNC_KEY) || '{}') }; }
     catch (e) { return { repo: '', token: '', lastSync: 0 }; }
@@ -1528,6 +1593,7 @@
     const box = $('#sync-settings');
     box.querySelector('#sync-repo').value = sync.cfg.repo;
     box.querySelector('#sync-token').value = sync.cfg.token;
+    box.querySelector('#sync-copy').hidden = !sync.enabled;
   }
 
   function saveSyncFromFields() {
@@ -1543,6 +1609,10 @@
     $(id).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); saveSyncFromFields(); } });
   }
   $('#sync-now').addEventListener('click', () => sync.run());
+  $('#sync-copy').addEventListener('click', copySyncCode);
+  $('#sync-paste').addEventListener('click', pasteSyncCode);
+  $('#sync-code').addEventListener('paste', () => setTimeout(() => { if (parseSyncCode($('#sync-code').value)) pasteSyncCode(); }, 0));
+  $('#sync-code').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); pasteSyncCode(); } });
   window.addEventListener('online', () => sync.run());
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') sync.run(); });
   renderSyncSettings();

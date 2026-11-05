@@ -50,6 +50,14 @@
             <button id="sync-save" class="btn">Enregistrer</button>
             <button id="sync-now" class="btn ghost">Synchroniser maintenant</button>
           </div>
+          <div class="sync-transfer">
+            <p class="hint"><b>Nouvel appareil ?</b> Sur l'appareil déjà configuré, « Copier le code », puis collez-le ici : dépôt et jeton sont repris et les morceaux arrivent.</p>
+            <label class="field">Code d'un autre appareil <input id="sync-code" type="text" class="secret" placeholder="VETERAN-SYNC:…" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false"></label>
+            <div class="side-row">
+              <button id="sync-paste" class="btn">Coller le code</button>
+              <button id="sync-copy" class="btn ghost" hidden>Copier le code</button>
+            </div>
+          </div>
         </details>
       </div>
     </aside>
