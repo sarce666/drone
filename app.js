@@ -3,7 +3,7 @@
    dent de scie → saturation légère → filtre passe-bas auto-modulé → (chorus) → pan/volume
    avec LFO lents sur le panoramique et le volume, enveloppe 2 s d'attaque / 4 s de relâche.
    Pad 2 (harmonium) : samples Freesound (pack 29512, CC0) bouclés avec fondu enchaîné.
-   Pad 3 (basse) : un seul sample (Moog long bass, Sample Focus) transposé sur toutes les notes, bouclé de même. */
+   Pad 3 (basse) : un seul sample (Moog long bass, Sample Focus) joué tel quel et répété, transposé pour les autres notes, sans effet. */
 (() => {
   'use strict';
 
@@ -41,8 +41,8 @@
   const HISTORY_KEY = 'drones-history-v1';
   const HISTORY_MAX = 40;        // versions gardées par morceau
   const HISTORY_GROUP_MS = 4000; // modifications rapprochées = une seule version
-  const DEFAULTS = { voices: DEFAULT_SOUND, samples: DEFAULT_SAMPLE_SOUND, bass: DEFAULT_SAMPLE_SOUND };
-  const SOUND_KEY = { voices: 'sound', samples: 'sampleSound', bass: 'bassSound' };
+  const DEFAULTS = { voices: DEFAULT_SOUND, samples: DEFAULT_SAMPLE_SOUND };
+  const SOUND_KEY = { voices: 'sound', samples: 'sampleSound' }; // la basse n'a pas d'effets
   const LEVEL_KEY = { samples: 'sampleLevel', bass: 'bassLevel' };
 
   const SOUND_PARAMS = [
@@ -204,7 +204,6 @@
       rhythm: normalizeRhythm(p.rhythm, p.kick),
       sound: { ...DEFAULT_SOUND, ...(p.sound || {}) },
       sampleSound: { ...DEFAULT_SAMPLE_SOUND, ...(p.sampleSound || {}) },
-      bassSound: { ...DEFAULT_SAMPLE_SOUND, ...(p.bassSound || {}) },
       updatedAt: Number(p.updatedAt) || 0,
     };
   }
@@ -357,12 +356,13 @@
         const ctx = Tone.getContext().rawContext;
         const buffer = await new Promise((res, rej) => ctx.decodeAudioData(bytes, res, rej));
         updateCacheStatus();
-        const loop = findLoop(buffer, { steady: true });
-        const root = detectRoot(buffer, loop.loopStart, loop.loopEnd) ?? BASS_ROOT;
+        const steady = findLoop(buffer, { steady: true }); // seulement pour mesurer la hauteur
+        const root = detectRoot(buffer, steady.loopStart, steady.loopEnd) ?? BASS_ROOT;
         bassRoot = root;
         for (const m of cellEls.bass.keys()) updateCell('bass', m, cur());
-        console.info('Basse : note de base', noteName(root), '· boucle', loop.loopStart.toFixed(2), '→', loop.loopEnd.toFixed(2), 's');
-        return { buffer, ...loop, root };
+        console.info('Basse : note de base', noteName(root));
+        // Joué tel quel : du début à la fin, puis répété (court fondu à la jonction), sans normalisation ni fondu d'entrée.
+        return { buffer, loopStart: 0, loopEnd: Math.max(0.1, buffer.duration - 0.01), norm: 1, xf: 0.08, fadeIn: 0.01, root };
       })();
       bassBuffer.catch(() => { bassBuffer = null; });
     }
@@ -454,14 +454,14 @@
       this.out = this.ctx.createGain();
       this.out.gain.value = 0;
       this.meter = new Tone.Meter({ normalRange: true, smoothing: 0.85 });
-      Tone.connect(this.out, engine.fx[kind].dist);
+      Tone.connect(this.out, engine.fx[kind]?.dist ?? engine.bus[kind]);
       Tone.connect(this.out, this.meter);
       this.sources = new Set();
       this.first = true;
       this.next = this.ctx.currentTime + 0.05;
       const t = this.ctx.currentTime;
       this.out.gain.setValueAtTime(0, t);
-      this.out.gain.linearRampToValueAtTime(vol * SAMPLE_GAIN * data.norm, t + 1);
+      this.out.gain.linearRampToValueAtTime(vol * SAMPLE_GAIN * data.norm, t + (data.fadeIn ?? 1));
       this.schedule();
       this.timer = setInterval(() => this.schedule(), 400);
     }
@@ -473,7 +473,7 @@
       while (this.next < this.ctx.currentTime + 1.5) {
         const offset = this.first ? 0 : loopStart;
         const len = (loopEnd - offset) / rate;
-        const xf = Math.min(1.2, (loopEnd - loopStart) / rate / 3);
+        const xf = Math.min(this.data.xf ?? 1.2, (loopEnd - loopStart) / rate / 3);
         const t = this.next;
         const src = this.ctx.createBufferSource();
         src.buffer = buffer;
@@ -624,9 +624,8 @@
     synthBus: null,
     sampleBus: null,
     sampleFx: null,      // effets partagés du pad harmonium
-    bassBus: null,
-    bassFx: null,        // effets partagés du pad basse
-    fx: {},              // kind → effets (samples, bass)
+    bassBus: null,       // la basse n'a pas d'effets : sortie directe
+    fx: {},              // kind → effets (samples)
     bus: {},             // kind → bus de niveau
     chains: new Map(),   // pad synthé : midi → chaîne Tone
     samples: new Map(),  // pad harmonium : midi → SampleVoice (ou { loading: true, vol })
@@ -643,8 +642,7 @@
       this.sampleBus = new Tone.Gain(cur()?.sampleLevel ?? 0.7).connect(this.master);
       this.sampleFx = makeFx(this.sampleBus, cur()?.sampleSound || DEFAULT_SAMPLE_SOUND);
       this.bassBus = new Tone.Gain(cur()?.bassLevel ?? 1).connect(this.master);
-      this.bassFx = makeFx(this.bassBus, cur()?.bassSound || DEFAULT_SAMPLE_SOUND);
-      this.fx = { samples: this.sampleFx, bass: this.bassFx };
+      this.fx = { samples: this.sampleFx }; // la basse sort directement sur son bus
       this.bus = { samples: this.sampleBus, bass: this.bassBus };
       this.ready = true;
       meterLoop();
@@ -701,7 +699,7 @@
           else sv.setVolume(v.vol);
         }
         for (const midi of [...live.keys()]) if (!(midi in wantedS)) this.stopSample(kind, midi);
-        if (p) { this.bus[kind].gain.rampTo(p[LEVEL_KEY[kind]], 0.2); applyFx(this.fx[kind], p[SOUND_KEY[kind]]); }
+        if (p) { this.bus[kind].gain.rampTo(p[LEVEL_KEY[kind]], 0.2); if (this.fx[kind]) applyFx(this.fx[kind], p[SOUND_KEY[kind]]); }
       }
 
       if (p && drumsOn(p)) rhythm.apply(p.rhythm, p.id); else rhythm.stop();
@@ -852,7 +850,7 @@
   function applyKindSound(kind, p) {
     if (!engine.ready) return;
     if (kind === 'voices') applySound(p.sound);
-    else applyFx(engine.fx[kind], p[SOUND_KEY[kind]]);
+    else if (engine.fx[kind]) applyFx(engine.fx[kind], p[SOUND_KEY[kind]]);
   }
 
   // Changer « épaisseur » demande un nouvel oscillateur : on fond l'ancien dans le nouveau.
@@ -1062,8 +1060,7 @@
           ${clearButton('bass')}
         </div>
         <div class="grid" id="grid-bass"></div>
-        <div class="hint">Basse Moog (« Travis Scott Type — Moog Long Bass » d'Albert Mathiesen, Sample Focus, libre de droits) : un seul enregistrement, transposé sur toutes les notes et bouclé. Loin de sa note de base, le timbre change.</div>
-        ${soundPanel('bass', 'Son de la basse')}
+        <div class="hint">Basse Moog (« Travis Scott Type — Moog Long Bass » d'Albert Mathiesen, Sample Focus, libre de droits), sans aucun effet. La case en pointillé joue le fichier tel quel, répété ; les autres notes le transposent.</div>
       </div>` : ''}`;
 
     const nameInput = main.querySelector('#piece-name');
@@ -1105,7 +1102,8 @@
     bindLevel(main, '#bass-level', '#bass-level-db', () => p.bassLevel, v => { p.bassLevel = v; engine.setPadLevel('bass', v); });
 
     for (const kind of KINDS) {
-      if ($('#grid-' + kind)) { renderGrid(kind, p); renderSound(kind, p); }
+      if ($('#grid-' + kind)) renderGrid(kind, p);
+      if ($('#sound-' + kind)) renderSound(kind, p);
     }
   }
 
@@ -1316,7 +1314,7 @@
     el.addEventListener('pointerdown', e => {
       pointerId = e.pointerId;
       startY = e.clientY;
-      startVol = p[kind][midi]?.vol ?? 0.8;
+      startVol = p[kind][midi]?.vol ?? (kind === 'bass' ? 1 : 0.8);
       dragging = false;
       el.setPointerCapture(e.pointerId);
     });
@@ -1390,7 +1388,7 @@
     engine.sync();
   }
 
-  function setVoice(p, kind, midi, on, vol = 0.8) {
+  function setVoice(p, kind, midi, on, vol = kind === 'bass' ? 1 : 0.8) {
     if (on) p[kind][midi] = { vol: p[kind][midi]?.vol ?? vol };
     else delete p[kind][midi];
     updateCell(kind, midi, p);

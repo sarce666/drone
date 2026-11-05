@@ -16,9 +16,10 @@ Chaque morceau a trois pads qui jouent en même temps :
 - **Pad 3 — Basse** : un seul enregistrement, « Travis Scott Type — Moog Long Bass » d'Albert Mathiesen
   ([Sample Focus](https://samplefocus.com/samples/travis-scott-type-moog-long-bass), licence standard, libre de
   droits), dans `samples/bass/bass.wav`. Sa note de base est détectée au chargement (autocorrélation), puis le
-  son est transposé sur toutes les notes du pad (Do1 à Si5) et bouclé sur sa zone la plus stable (1,5 s). La case
-  qui joue le son tel quel (Do1 pour ce fichier) est marquée d'un pointillé. Loin de la note de base, le timbre
-  change, c'est voulu. Pour changer de basse : nouveau fichier WAV (note tenue, 5 s ou plus) sous un
+  fichier est joué tel quel, du début à la fin, puis répété (fondu de 80 ms à la jonction), sans effet, sans
+  normalisation ni fondu d'entrée : la case marquée d'un pointillé (Do1 pour ce fichier) donne exactement le
+  fichier. Les autres notes du pad (Do1 à Si5) le transposent ; loin de la note de base, le timbre change, c'est
+  voulu. Pour changer de basse : nouveau fichier WAV (note tenue, 5 s ou plus) sous un
   **nouveau nom** dans `samples/bass/`, et `BASS_URL` dans `app.js` pointé dessus ; les appareils gardent les sons
   en cache par nom de fichier, un fichier remplacé sous le même nom ne serait pas rechargé.
 
@@ -62,7 +63,8 @@ affichent « Nouvelle version disponible » à leur prochaine ouverture. Dépôt
   règle son volume. Le curseur « Niveau » règle le volume global du pad.
 - **Pad 2 — Harmonium** : même grille, mêmes gestes, même curseur « Niveau ». Les notes grisées n'existent pas dans
   la banque (Do2 à Ré5).
-- **Pad 3 — Basse** : même grille, toutes les notes jouables, même curseur « Niveau » et même panneau « Son ».
+- **Pad 3 — Basse** : même grille, toutes les notes jouables, même curseur « Niveau » ; pas de panneau « Son »,
+  la basse sort sans effet.
 - **Rythme** : un séquenceur à cases. Tempo en BPM (champ, boutons − / +, curseur) commun aux trois pistes, compteur
   de temps (1 à 4) qui bat la mesure. Une ligne par instrument (grosse caisse, caisse claire, cymbale) : bouton
   ON/OFF (sur OFF, seule la ligne de titre reste visible), choix du son (plusieurs cymbales), niveau, puis les cases
@@ -75,7 +77,8 @@ affichent « Nouvelle version disponible » à leur prochaine ouverture. Dépôt
   Sons dans `samples/kick`, `samples/snare`, `samples/cymbal` (originaux de `Documents/Binaire/composition/4/Audio`).
 - **Son** (un panneau sous chaque pad) : brillance et résonance du filtre, mouvement du filtre, chorus, saturation.
   Le synthé a en plus « épaisseur » (2 oscillateurs désaccordés). Double-clic sur un curseur pour revenir à la
-  valeur par défaut. Sur l'harmonium, la chaîne d'effets est partagée par toutes les notes du pad.
+  valeur par défaut. Sur l'harmonium, la chaîne d'effets est partagée par toutes les notes du pad. La basse n'a
+  pas de panneau « Son ».
 - **Barre du haut** : lancer / arrêter (ou barre d'espace), volume général, référence du La4.
 - **Exporter / Importer** : sauvegarde et restauration de tous les morceaux en JSON.
 
