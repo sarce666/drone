@@ -201,6 +201,7 @@
       synthLevel: clamp(Number(p.synthLevel ?? 0.5), 0, 2),   // gain linéaire ; -6 dB par défaut
       sampleLevel: clamp(Number(p.sampleLevel ?? 1), 0, 4),
       bassLevel: clamp(Number(p.bassLevel ?? 1), 0, 4),
+      droneLevel: clamp(Number(p.droneLevel ?? 1), 0, 4), // niveau général synthé + harmonium + basse
       parts: normalizeParts(p.parts, p.mode),
       rhythm: normalizeRhythm(p.rhythm, p.kick),
       sound: { ...DEFAULT_SOUND, ...(p.sound || {}) },
@@ -622,6 +623,7 @@
     ready: false,
     playing: false,
     master: null,
+    droneBus: null,      // niveau général du drone (synthé + harmonium + basse)
     synthBus: null,
     sampleBus: null,
     sampleFx: null,      // effets partagés du pad harmonium
@@ -639,10 +641,11 @@
       if (typeof Tone === 'undefined') { alert('Tone.js introuvable (vendor/Tone.js).'); throw new Error('Tone missing'); }
       await Tone.start();
       this.master = new Tone.Gain(state.master).toDestination();
-      this.synthBus = new Tone.Gain(cur()?.synthLevel ?? 1).connect(this.master);
-      this.sampleBus = new Tone.Gain(cur()?.sampleLevel ?? 0.7).connect(this.master);
+      this.droneBus = new Tone.Gain(cur()?.droneLevel ?? 1).connect(this.master); // les trois pads passent par ici
+      this.synthBus = new Tone.Gain(cur()?.synthLevel ?? 1).connect(this.droneBus);
+      this.sampleBus = new Tone.Gain(cur()?.sampleLevel ?? 0.7).connect(this.droneBus);
       this.sampleFx = makeFx(this.sampleBus, cur()?.sampleSound || DEFAULT_SAMPLE_SOUND);
-      this.bassBus = new Tone.Gain(cur()?.bassLevel ?? 1).connect(this.master);
+      this.bassBus = new Tone.Gain(cur()?.bassLevel ?? 1).connect(this.droneBus);
       this.fx = { samples: this.sampleFx }; // la basse sort directement sur son bus
       this.bus = { samples: this.sampleBus, bass: this.bassBus };
       this.ready = true;
@@ -687,7 +690,7 @@
         }
       }
       for (const midi of [...this.chains.keys()]) if (!(midi in wanted)) this.release(midi);
-      if (p) { applySound(p.sound); this.synthBus.gain.rampTo(p.synthLevel, 0.2); }
+      if (p) { applySound(p.sound); this.synthBus.gain.rampTo(p.synthLevel, 0.2); this.droneBus.gain.rampTo(p.droneLevel, 0.2); }
 
       for (const kind of SAMPLED) {
         const live = this.voicesOf(kind);
@@ -763,6 +766,10 @@
 
     setPadLevel(kind, v) {
       if (this.bus[kind]) this.bus[kind].gain.rampTo(v, 0.2);
+    },
+
+    setDroneLevel(v) {
+      if (this.droneBus) this.droneBus.gain.rampTo(v, 0.2);
     },
 
     setSynthLevel(v) {
@@ -951,6 +958,7 @@
     main.innerHTML = `
       <div class="parts" id="parts">
         ${PARTS.map(part => `<button class="part ${p.parts[part.id] ? 'on' : ''} ${DRONE_PARTS.includes(part.id) && !p.parts.drone ? 'dim' : ''}" data-part="${part.id}" aria-pressed="${p.parts[part.id] ? 'true' : 'false'}">${part.label}</button>`).join('')}
+        <label class="level drone-level ${p.parts.drone ? '' : 'dim'}">Niveau du drone <input type="range" id="drone-level" min="-36" max="12" step="0.5"><span class="db" id="drone-level-db"></span></label>
       </div>
 
       <div class="piece-head">
@@ -1100,6 +1108,7 @@
     for (const b of main.querySelectorAll('[data-clear]')) {
       b.addEventListener('click', () => { p[b.dataset.clear] = {}; commit(); });
     }
+    bindLevel(main, '#drone-level', '#drone-level-db', () => p.droneLevel, v => { p.droneLevel = v; engine.setDroneLevel(v); });
     bindLevel(main, '#synth-level', '#synth-level-db', () => p.synthLevel, v => { p.synthLevel = v; engine.setSynthLevel(v); });
     for (const id of PERC_IDS) {
       bindLevel(main, '#level-' + id, '#level-' + id + '-db', () => p.rhythm.tracks[id].level, v => { p.rhythm.tracks[id].level = v; rhythm.setLevel(id, v); });

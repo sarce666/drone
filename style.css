@@ -671,6 +671,15 @@ input[type="range"] { touch-action: pan-y; accent-color: var(--green); }
   background: var(--bg);
   border-bottom: 2px solid var(--paper);
 }
+/* Niveau général du drone, sous les cinq boutons, dans le bandeau collant. */
+.parts .drone-level {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; gap: 10px;
+  font-family: var(--cond); font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--paper);
+}
+.parts .drone-level input { flex: 1; width: auto; min-width: 140px; }
+.parts .drone-level .db { min-width: 58px; font-family: var(--type); text-transform: none; letter-spacing: 0; color: var(--green); font-variant-numeric: tabular-nums; }
+.parts .drone-level.dim { opacity: 0.45; }
 .part {
   min-height: 56px;
   padding: 10px 8px 8px;
@@ -729,7 +738,10 @@ input[type="range"] { touch-action: pan-y; accent-color: var(--green); }
 @media (max-width: 600px) {
   .parts { grid-template-columns: repeat(2, 1fr); gap: 8px; margin: -16px -16px 14px; padding: 10px 16px 10px; top: -16px; }
   .part { min-height: 50px; font-size: 17px; }
-  .parts .part:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .parts .part:nth-child(5) { grid-column: 1 / -1; }
+  .parts .drone-level { flex-wrap: wrap; row-gap: 4px; }
+  .parts .drone-level .db { margin-left: auto; }
+  .parts .drone-level input { flex: 1 1 100%; order: 2; }
   .piece-head { flex-wrap: wrap; }
   .piece-name { flex: 1 1 100%; min-width: 0; }
   .piece-head .actions { flex-wrap: wrap; }

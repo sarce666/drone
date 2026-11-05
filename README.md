@@ -52,7 +52,8 @@ affichent « Nouvelle version disponible » à leur prochaine ouverture. Dépôt
 - **Drone / Synthé / Harmonium / Basse / Batterie** : cinq gros boutons en haut du morceau, verts quand la partie
   est active ; un toucher l'éteint, un autre la rallume. « Drone » est l'interrupteur général du synthé, de
   l'harmonium et de la basse : éteint, les trois s'arrêtent d'un coup ; rallumé, les trois repartent. Rallumer
-  Synthé, Harmonium ou Basse seul rallume Drone avec cette seule partie. La batterie est indépendante. Une partie éteinte disparaît de l'écran mais garde ses notes et ses
+  Synthé, Harmonium ou Basse seul rallume Drone avec cette seule partie. La batterie est indépendante. Sous les
+  boutons, « Niveau du drone » règle le volume des trois pads ensemble (chaque pad garde son propre « Niveau »). Une partie éteinte disparaît de l'écran mais garde ses notes et ses
   réglages.
 - **Annuler / Rétablir et Versions** : chaque modification du morceau crée une version (les modifications à moins de
   4 secondes d'intervalle sont regroupées) ; 40 versions sont gardées par morceau. « ↶ Annuler » revient à la
