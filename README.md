@@ -16,8 +16,9 @@ Chaque morceau a trois pads qui jouent en même temps :
 - **Pad 3 — Basse** : un seul enregistrement, « Travis Scott Type — Moog Long Bass » d'Albert Mathiesen
   ([Sample Focus](https://samplefocus.com/samples/travis-scott-type-moog-long-bass), licence standard, libre de
   droits), dans `samples/bass/bass.wav`. Sa note de base est détectée au chargement (autocorrélation), puis le
-  son est transposé sur toutes les notes du pad (Do1 à Si5) et bouclé comme l'harmonium. Loin de la note de base,
-  le timbre change, c'est voulu. Pour changer de basse : nouveau fichier WAV (note tenue, 5 s ou plus) sous un
+  son est transposé sur toutes les notes du pad (Do1 à Si5) et bouclé sur sa zone la plus stable (1,5 s). La case
+  qui joue le son tel quel (Do1 pour ce fichier) est marquée d'un pointillé. Loin de la note de base, le timbre
+  change, c'est voulu. Pour changer de basse : nouveau fichier WAV (note tenue, 5 s ou plus) sous un
   **nouveau nom** dans `samples/bass/`, et `BASS_URL` dans `app.js` pointé dessus ; les appareils gardent les sons
   en cache par nom de fichier, un fichier remplacé sous le même nom ne serait pas rechargé.
 
@@ -49,7 +50,8 @@ affichent « Nouvelle version disponible » à leur prochaine ouverture. Dépôt
 - **Morceaux** (colonne de gauche) : « + Nouveau » crée un morceau. Cliquer sur un morceau le charge et lance son drone.
 - **Drone / Synthé / Harmonium / Basse / Batterie** : cinq gros boutons en haut du morceau, verts quand la partie
   est active ; un toucher l'éteint, un autre la rallume. « Drone » couvre le synthé et l'harmonium : éteint, les
-  deux se taisent même si leurs boutons restent verts. La basse et la batterie sont indépendantes. Une partie éteinte disparaît de l'écran mais garde ses notes et ses
+  deux se taisent même si leurs boutons restent verts ; rallumer Synthé ou Harmonium rallume Drone. La basse et la
+  batterie sont indépendantes. Une partie éteinte disparaît de l'écran mais garde ses notes et ses
   réglages.
 - **Annuler / Rétablir et Versions** : chaque modification du morceau crée une version (les modifications à moins de
   4 secondes d'intervalle sont regroupées) ; 40 versions sont gardées par morceau. « ↶ Annuler » revient à la

@@ -347,6 +347,7 @@
 
   // Basse : un seul fichier pour toutes les notes. Chargé une fois ; root = note de base détectée.
   let bassBuffer = null;
+  let bassRoot = null; // note de base détectée, pour marquer la case d'origine
   function loadBass() {
     if (!bassBuffer) {
       bassBuffer = (async () => {
@@ -356,9 +357,11 @@
         const ctx = Tone.getContext().rawContext;
         const buffer = await new Promise((res, rej) => ctx.decodeAudioData(bytes, res, rej));
         updateCacheStatus();
-        const loop = findLoop(buffer);
+        const loop = findLoop(buffer, { steady: true });
         const root = detectRoot(buffer, loop.loopStart, loop.loopEnd) ?? BASS_ROOT;
-        console.info('Basse : note de base', noteName(root));
+        bassRoot = root;
+        for (const m of cellEls.bass.keys()) updateCell('bass', m, cur());
+        console.info('Basse : note de base', noteName(root), '· boucle', loop.loopStart.toFixed(2), '→', loop.loopEnd.toFixed(2), 's');
         return { buffer, ...loop, root };
       })();
       bassBuffer.catch(() => { bassBuffer = null; });
@@ -398,7 +401,8 @@
   }
 
   // Trouve la zone tenue du son (après l'attaque, avant la chute) pour y boucler.
-  function findLoop(buffer) {
+  // steady : boucle courte (1,5 s) dans la zone la plus stable, pour un son dont le timbre évolue (basse).
+  function findLoop(buffer, { steady = false } = {}) {
     const data = buffer.getChannelData(0);
     const win = Math.floor(buffer.sampleRate * 0.05);
     const rms = [];
@@ -416,6 +420,19 @@
     let loopStart = (first * 0.05) + 0.4;
     let loopEnd = (last * 0.05) - 0.2;
     if (loopEnd - loopStart < 1.5) { loopStart = dur * 0.2; loopEnd = dur * 0.8; }
+    if (steady && last - first >= 50) {
+      // Fenêtre de 30 trames (1,5 s) dont le niveau varie le moins, après l'attaque.
+      const win = 30;
+      let bestI = first + 8, bestScore = Infinity;
+      for (let i = first + 8; i + win <= last; i++) {
+        let lo = Infinity, hi = 0, sum = 0;
+        for (let j = i; j < i + win; j++) { lo = Math.min(lo, rms[j]); hi = Math.max(hi, rms[j]); sum += rms[j]; }
+        const score = (hi - lo) / (sum / win || 1);
+        if (score < bestScore) { bestScore = score; bestI = i; }
+      }
+      loopStart = bestI * 0.05;
+      loopEnd = (bestI + win) * 0.05;
+    }
     loopStart = clamp(loopStart, 0, dur); loopEnd = clamp(loopEnd, 0, dur);
     // Niveau tenu réel → gain de normalisation (les fichiers varient de 6 dB entre eux).
     const a = Math.floor(loopStart * buffer.sampleRate), b = Math.floor(loopEnd * buffer.sampleRate);
@@ -1057,7 +1074,13 @@
     main.querySelector('#dup').addEventListener('click', () => duplicatePiece(p));
     main.querySelector('#del').addEventListener('click', () => deletePiece(p));
     for (const b of main.querySelectorAll('[data-part]')) {
-      b.addEventListener('click', () => { p.parts[b.dataset.part] = !p.parts[b.dataset.part]; commit(); });
+      b.addEventListener('click', () => {
+        const id = b.dataset.part;
+        p.parts[id] = !p.parts[id];
+        // Allumer le synthé ou l'harmonium alors que Drone est éteint rallume Drone : quelque chose apparaît toujours.
+        if (p.parts[id] && (id === 'synth' || id === 'harmonium') && !p.parts.drone) p.parts.drone = true;
+        commit();
+      });
     }
     main.querySelector('#undo').addEventListener('click', () => history.undo(p));
     main.querySelector('#redo').addEventListener('click', () => history.redo(p));
@@ -1271,6 +1294,8 @@
         updateCell(kind, midi, p);
       }
     }
+    // Basse : charger le son dès l'affichage, pour marquer la case d'origine (et le garder hors ligne).
+    if (kind === 'bass' && useWav && typeof Tone !== 'undefined') loadBass().catch(() => {});
   }
 
   function updateCell(kind, midi, p) {
@@ -1279,9 +1304,11 @@
     const v = p[kind][midi];
     el.classList.toggle('on', !!v);
     el.classList.toggle('loading', kind !== 'voices' && !!engine.voicesOf(kind).get(midi)?.loading);
+    const root = kind === 'bass' && bassRoot === midi;
+    el.classList.toggle('root', root);
     el.style.setProperty('--vol', v ? v.vol : 0);
-    el.title = el.classList.contains('na') ? `${noteName(midi)} · pas dans la banque`
-      : v ? `${noteName(midi)} · volume ${Math.round(v.vol * 100)} %` : noteName(midi);
+    el.title = (el.classList.contains('na') ? `${noteName(midi)} · pas dans la banque`
+      : v ? `${noteName(midi)} · volume ${Math.round(v.vol * 100)} %` : noteName(midi)) + (root ? ' · son d\'origine' : '');
   }
 
   function attachCellGestures(el, kind, midi, p) {
