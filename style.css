@@ -642,3 +642,79 @@ input[type="range"] { touch-action: pan-y; accent-color: var(--green); }
   .seg button { padding: 6px 10px 5px; font-size: 12px; }
   .side { max-height: 45vh; }
 }
+
+/* Parties du morceau : quatre gros boutons en haut du panneau, verts quand actifs. */
+.parts {
+  position: sticky;
+  top: -20px;
+  z-index: 5;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin: -20px -26px 16px;
+  padding: 14px 26px 12px;
+  background: var(--bg);
+  border-bottom: 2px solid var(--paper);
+}
+.part {
+  min-height: 56px;
+  padding: 10px 8px 8px;
+  border: 3px solid var(--paper);
+  background: #000;
+  color: var(--muted);
+  font-family: var(--cond);
+  font-size: 20px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, transform 0.08s;
+}
+.part:active { transform: translate(1px, 1px); }
+.part.on { background: var(--green); border-color: var(--green); color: #000; box-shadow: 3px 3px 0 var(--paper); }
+.part.dim { opacity: 0.45; }
+
+/* Versions d'un morceau. */
+.versions { margin: -4px 0 16px; }
+.versions summary {
+  cursor: pointer;
+  list-style: none;
+  font-family: var(--cond);
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  display: flex; align-items: center; gap: 8px;
+}
+.versions summary::-webkit-details-marker { display: none; }
+.versions summary::before { content: "▸"; color: var(--green); }
+.versions[open] summary::before { content: "▾"; }
+.versions .count { color: var(--green); }
+.version-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 2px solid var(--paper);
+  background: #000;
+}
+.version-list li {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--purple-deep);
+  font-family: var(--type);
+  font-size: 13px;
+}
+.version-list li:last-child { border-bottom: 0; }
+.version-list li.current { background: var(--purple-deep); }
+.version-list .when { color: var(--green); font-variant-numeric: tabular-nums; min-width: 72px; }
+.version-list .what { color: var(--paper); flex: 1; min-width: 160px; }
+.version-list .now-tag { font-family: var(--cond); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+
+@media (max-width: 600px) {
+  .parts { grid-template-columns: repeat(2, 1fr); gap: 8px; margin: -16px -16px 14px; padding: 10px 16px 10px; top: -16px; }
+  .part { min-height: 50px; font-size: 17px; }
+  .piece-head { flex-wrap: wrap; }
+  .piece-name { flex: 1 1 100%; min-width: 0; }
+  .piece-head .actions { flex-wrap: wrap; }
+}

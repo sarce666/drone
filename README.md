@@ -40,8 +40,14 @@ affichent « Nouvelle version disponible » à leur prochaine ouverture. Dépôt
 ## Utilisation
 
 - **Morceaux** (colonne de gauche) : « + Nouveau » crée un morceau. Cliquer sur un morceau le charge et lance son drone.
-- **Synthé seul / Les deux / Harmonium seul** : choisit, par morceau, quel pad est affiché et joué. Le pad masqué
-  est coupé mais garde ses notes et ses réglages.
+- **Drone / Synthé / Harmonium / Batterie** : quatre gros boutons en haut du morceau, verts quand la partie est
+  active ; un toucher l'éteint, un autre la rallume. « Drone » couvre le synthé et l'harmonium : éteint, les deux se
+  taisent même si leurs boutons restent verts. Une partie éteinte disparaît de l'écran mais garde ses notes et ses
+  réglages.
+- **Annuler / Rétablir et Versions** : chaque modification du morceau crée une version (les modifications à moins de
+  4 secondes d'intervalle sont regroupées) ; 40 versions sont gardées par morceau. « ↶ Annuler » revient à la
+  précédente, « ↷ Rétablir » avance, et le panneau « Versions » liste toutes les versions avec l'heure et un résumé,
+  chacune avec un bouton « Restaurer ». Cet historique reste sur l'appareil, il n'est pas synchronisé.
 - **Pad 1 — Synthé** : en haut, les 12 notes de base (Do à Si) ; en dessous, une ligne par octave (1 à 5) avec
   toutes les notes jouables. Toucher une note l'allume ou l'éteint ; glisser verticalement ou utiliser la molette
   règle son volume. Le curseur « Niveau » règle le volume global du pad.

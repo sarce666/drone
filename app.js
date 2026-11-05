@@ -23,11 +23,19 @@
     drive: 0.1, fat: false,
   };
   const DEFAULT_SAMPLE_SOUND = { ...DEFAULT_SOUND, drive: 0, fat: false };
-  const MODES = [
-    { id: 'voices', label: 'Synthé seul' },
-    { id: 'both', label: 'Les deux' },
-    { id: 'samples', label: 'Harmonium seul' },
+  // Parties d'un morceau, chacune avec son gros bouton en haut. « Drone » couvre synthé et harmonium.
+  const PARTS = [
+    { id: 'drone', label: 'Drone' },
+    { id: 'synth', label: 'Synthé' },
+    { id: 'harmonium', label: 'Harmonium' },
+    { id: 'drums', label: 'Batterie' },
   ];
+  const synthOn = p => p.parts.drone && p.parts.synth;
+  const sampleOn = p => p.parts.drone && p.parts.harmonium;
+  const drumsOn = p => p.parts.drums;
+  const HISTORY_KEY = 'drones-history-v1';
+  const HISTORY_MAX = 40;        // versions gardées par morceau
+  const HISTORY_GROUP_MS = 4000; // modifications rapprochées = une seule version
   const DEFAULTS = { voices: DEFAULT_SOUND, samples: DEFAULT_SAMPLE_SOUND };
   const SOUND_KEY = { voices: 'sound', samples: 'sampleSound' };
 
@@ -165,6 +173,14 @@
     };
   }
 
+  // p.mode est l'ancien format (synthé seul / les deux / harmonium seul).
+  function normalizeParts(parts, legacyMode) {
+    const src = parts || { drone: true, synth: legacyMode !== 'samples', harmonium: legacyMode !== 'voices', drums: true };
+    const out = {};
+    for (const part of PARTS) out[part.id] = src[part.id] !== false;
+    return out;
+  }
+
   function normalizePiece(p) {
     return {
       id: p.id || uid(),
@@ -173,7 +189,7 @@
       samples: normalizeVoices(p.samples, hasSample),
       synthLevel: clamp(Number(p.synthLevel ?? 0.5), 0, 2),   // gain linéaire ; -6 dB par défaut
       sampleLevel: clamp(Number(p.sampleLevel ?? 1), 0, 4),
-      mode: MODES.some(m => m.id === p.mode) ? p.mode : 'both',
+      parts: normalizeParts(p.parts, p.mode),
       rhythm: normalizeRhythm(p.rhythm, p.kick),
       sound: { ...DEFAULT_SOUND, ...(p.sound || {}) },
       sampleSound: { ...DEFAULT_SAMPLE_SOUND, ...(p.sampleSound || {}) },
@@ -192,7 +208,7 @@
       let changed = false;
       for (const p of state.pieces) {
         const h = pieceHash(p);
-        if (hashes.get(p.id) !== h) { hashes.set(p.id, h); p.updatedAt = Date.now(); changed = true; }
+        if (hashes.get(p.id) !== h) { hashes.set(p.id, h); p.updatedAt = Date.now(); changed = true; history.record(p); }
       }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       if (changed) sync.schedule();
@@ -205,6 +221,94 @@
   }
 
   const cur = () => state.pieces.find(p => p.id === state.currentId) || null;
+
+  // ---------- Versions : historique local de chaque morceau ----------
+  // Chaque enregistrement d'un morceau modifié ajoute une version (les modifications à moins de
+  // HISTORY_GROUP_MS d'intervalle sont regroupées). Annuler / Rétablir se déplacent dans cette liste ;
+  // restaurer une version ne crée pas de nouvelle version. Gardé sur l'appareil, pas synchronisé.
+  const history = {
+    data: (() => { try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || {}; } catch { return {}; } })(),
+    pos: {},          // id → index de la version affichée (undefined = la dernière)
+    restoring: false, // évite d'enregistrer une version pendant une restauration
+    open: false,      // état du panneau « Versions »
+
+    list(p) { return this.data[p.id] || (this.data[p.id] = []); },
+    persist() {
+      try { localStorage.setItem(HISTORY_KEY, JSON.stringify(this.data)); } catch (e) { console.warn('Historique non enregistré', e); }
+    },
+    snap(p) { return JSON.parse(JSON.stringify({ ...p, updatedAt: 0 })); },
+
+    record(p) {
+      if (this.restoring) return;
+      const list = this.list(p);
+      const pos = this.pos[p.id];
+      if (pos !== undefined && pos < list.length - 1) list.splice(pos + 1); // on repart d'une ancienne version : la suite est abandonnée
+      delete this.pos[p.id];
+      const now = Date.now(), last = list[list.length - 1];
+      const snap = this.snap(p);
+      if (last && JSON.stringify(last.snap) === JSON.stringify(snap)) return;
+      if (last && now - last.at < HISTORY_GROUP_MS && list.length > 1) { last.at = now; last.snap = snap; }
+      else list.push({ at: now, snap });
+      while (list.length > HISTORY_MAX) list.shift();
+      this.persist();
+    },
+
+    index(p) { const list = this.list(p); return this.pos[p.id] ?? list.length - 1; },
+
+    info(p) {
+      const list = this.list(p), idx = this.index(p);
+      return {
+        canUndo: idx > 0,
+        canRedo: idx < list.length - 1,
+        list: list.map((v, i) => ({ index: i, current: i === idx, when: fmtWhen(v.at), what: describe(v.snap) })).reverse(),
+      };
+    },
+
+    restore(p, index) {
+      const list = this.list(p);
+      const v = list[index];
+      if (!v) return;
+      this.restoring = true;
+      try {
+        const fresh = normalizePiece({ ...JSON.parse(JSON.stringify(v.snap)), id: p.id });
+        Object.assign(p, fresh);
+        this.pos[p.id] = index;
+        commit();
+      } finally { this.restoring = false; }
+    },
+    undo(p) { const i = this.index(p); if (i > 0) this.restore(p, i - 1); },
+    redo(p) { const i = this.index(p); if (i < this.list(p).length - 1) this.restore(p, i + 1); },
+    forget(id) { delete this.data[id]; delete this.pos[id]; this.persist(); },
+    // Les morceaux sans historique (anciens, ou arrivés par la synchronisation) partent de leur état actuel.
+    seed() {
+      let added = false;
+      for (const p of state.pieces) {
+        if (this.list(p).length) continue;
+        this.list(p).push({ at: p.updatedAt || Date.now(), snap: this.snap(p) });
+        added = true;
+      }
+      if (added) this.persist();
+    },
+  };
+  history.seed();
+
+  function fmtWhen(t) {
+    const d = new Date(t), today = new Date();
+    const time = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    return d.toDateString() === today.toDateString() ? time : d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) + ' ' + time;
+  }
+
+  // Résumé d'une version pour la liste.
+  function describe(s) {
+    const n = Object.keys(s.voices || {}).length + Object.keys(s.samples || {}).length;
+    const parts = PARTS.filter(part => s.parts?.[part.id] === false).map(part => part.label.toLowerCase());
+    const drums = PERC_IDS.filter(id => s.rhythm?.tracks?.[id]?.on).length;
+    const bits = [`${n} ${n > 1 ? 'notes' : 'note'}`, `${s.rhythm?.bpm ?? '?'} BPM`];
+    if (drums) bits.push(`${drums} perc.`);
+    if (parts.length) bits.push('sans ' + parts.join(', '));
+    if (s.name) bits.unshift(s.name);
+    return bits.join(' · ');
+  }
 
   // ---------- Samples : chargement et bouclage ----------
   const sampleBuffers = new Map(); // midi → Promise<{ buffer, loopStart, loopEnd }>
@@ -477,7 +581,7 @@
       const p = cur();
       if (!this.playing || !this.ready) return;
 
-      const wanted = p && p.mode !== 'samples' ? p.voices : {};
+      const wanted = p && synthOn(p) ? p.voices : {};
       for (const [midiStr, v] of Object.entries(wanted)) {
         const midi = Number(midiStr);
         let c = this.chains.get(midi);
@@ -492,7 +596,7 @@
       for (const midi of [...this.chains.keys()]) if (!(midi in wanted)) this.release(midi);
       if (p) { applySound(p.sound); this.synthBus.gain.rampTo(p.synthLevel, 0.2); }
 
-      const wantedS = p && p.mode !== 'voices' ? p.samples : {};
+      const wantedS = p && sampleOn(p) ? p.samples : {};
       for (const [midiStr, v] of Object.entries(wantedS)) {
         const midi = Number(midiStr);
         const sv = this.samples.get(midi);
@@ -503,7 +607,7 @@
       for (const midi of [...this.samples.keys()]) if (!(midi in wantedS)) this.stopSample(midi);
       if (p) { this.sampleBus.gain.rampTo(p.sampleLevel, 0.2); applyFx(this.sampleFx, p.sampleSound); }
 
-      if (p) rhythm.apply(p.rhythm, p.id); else rhythm.stop();
+      if (p && drumsOn(p)) rhythm.apply(p.rhythm, p.id); else rhythm.stop();
     },
 
     release(midi) {
@@ -742,21 +846,34 @@
       return;
     }
 
+    const hv = history.info(p);
     main.innerHTML = `
+      <div class="parts" id="parts">
+        ${PARTS.map(part => `<button class="part ${p.parts[part.id] ? 'on' : ''} ${(part.id === 'synth' || part.id === 'harmonium') && !p.parts.drone ? 'dim' : ''}" data-part="${part.id}" aria-pressed="${p.parts[part.id] ? 'true' : 'false'}">${part.label}</button>`).join('')}
+      </div>
+
       <div class="piece-head">
         <input class="piece-name" id="piece-name" spellcheck="false" placeholder="Nom du morceau">
         <div class="actions">
+          <button class="btn small" id="undo" ${hv.canUndo ? '' : 'disabled'} title="Revenir à la version précédente">↶ Annuler</button>
+          <button class="btn small" id="redo" ${hv.canRedo ? '' : 'disabled'} title="Revenir à la version suivante">↷ Rétablir</button>
           <button class="btn small" id="dup">Dupliquer</button>
           <button class="btn small danger" id="del">Supprimer</button>
         </div>
       </div>
 
-      <div class="section">
-        <div class="seg" id="mode">
-          ${MODES.map(m => `<button data-mode="${m.id}" class="${p.mode === m.id ? 'on' : ''}">${m.label}</button>`).join('')}
-        </div>
-      </div>
+      <details class="versions" id="versions">
+        <summary>Versions <span class="count">${hv.list.length}</span></summary>
+        ${hv.list.length ? `<ul class="version-list">${hv.list.map(v => `
+          <li class="${v.current ? 'current' : ''}">
+            <span class="when">${v.when}</span>
+            <span class="what">${v.what}</span>
+            ${v.current ? '<span class="now-tag">version actuelle</span>' : `<button class="btn small ghost" data-restore="${v.index}">Restaurer</button>`}
+          </li>`).join('')}</ul>`
+          : '<p class="hint">Chaque modification du morceau crée une version ici (les modifications rapprochées sont regroupées).</p>'}
+      </details>
 
+      ${drumsOn(p) ? `
       <div class="section kick">
         <div class="section-title">Rythme
           <span class="spacer"></span>
@@ -809,9 +926,9 @@
           </div>`; }).join('')}
         </div>
         <div class="hint">Une ligne par instrument : ON/OFF, son, niveau, puis les cases de la boucle (les temps sont numérotés, « · » sont les subdivisions). Toucher une case y met ou enlève une frappe. « Boucles » : combien de fois la boucle est jouée, ∞ pour sans fin. « Temps » : longueur de la boucle ; « Cases par temps » : finesse de la grille (2 = croches, 4 = doubles-croches, 3 = triolets).</div>
-      </div>
+      </div>` : ''}
 
-      ${p.mode !== 'samples' ? `
+      ${synthOn(p) ? `
       <div class="section pad">
         <div class="section-title">Pad 1 — Synthé
           <label class="level">Niveau <input type="range" id="synth-level" min="-36" max="6" step="0.5"><span class="db" id="synth-level-db"></span></label>
@@ -823,7 +940,7 @@
         ${soundPanel('voices', 'Son du synthé')}
       </div>` : ''}
 
-      ${p.mode !== 'voices' ? `
+      ${sampleOn(p) ? `
       <div class="section pad">
         <div class="section-title">Pad 2 — Harmonium
           <label class="level">Niveau <input type="range" id="sample-level" min="-36" max="12" step="0.5"><span class="db" id="sample-level-db"></span></label>
@@ -842,9 +959,17 @@
 
     main.querySelector('#dup').addEventListener('click', () => duplicatePiece(p));
     main.querySelector('#del').addEventListener('click', () => deletePiece(p));
-    for (const b of main.querySelectorAll('[data-mode]')) {
-      b.addEventListener('click', () => { p.mode = b.dataset.mode; commit(); });
+    for (const b of main.querySelectorAll('[data-part]')) {
+      b.addEventListener('click', () => { p.parts[b.dataset.part] = !p.parts[b.dataset.part]; commit(); });
     }
+    main.querySelector('#undo').addEventListener('click', () => history.undo(p));
+    main.querySelector('#redo').addEventListener('click', () => history.redo(p));
+    for (const b of main.querySelectorAll('[data-restore]')) {
+      b.addEventListener('click', () => history.restore(p, Number(b.dataset.restore)));
+    }
+    const versionsEl = main.querySelector('#versions');
+    versionsEl.open = history.open;
+    versionsEl.addEventListener('toggle', () => { history.open = versionsEl.open; });
     for (const b of main.querySelectorAll('[data-reset]')) {
       b.addEventListener('click', e => { e.preventDefault(); p[SOUND_KEY[b.dataset.reset]] = { ...DEFAULTS[b.dataset.reset] }; commit(); });
     }
@@ -855,7 +980,7 @@
     for (const id of PERC_IDS) {
       bindLevel(main, '#level-' + id, '#level-' + id + '-db', () => p.rhythm.tracks[id].level, v => { p.rhythm.tracks[id].level = v; rhythm.setLevel(id, v); });
     }
-    bindRhythm(main, p);
+    if (main.querySelector('#bpm')) bindRhythm(main, p);
     bindLevel(main, '#sample-level', '#sample-level-db', () => p.sampleLevel, v => { p.sampleLevel = v; engine.setSampleLevel(v); });
 
     for (const kind of KINDS) {
@@ -1135,7 +1260,7 @@
 
   // ---------- Actions ----------
   function commit() {
-    save();
+    save(true); // tout de suite, pour que l'affichage (versions) reflète l'état enregistré
     renderAll();
     engine.sync();
   }
@@ -1181,6 +1306,7 @@
     state.pieces.splice(idx, 1);
     state.deleted[p.id] = Date.now();
     hashes.delete(p.id);
+    history.forget(p.id);
     state.currentId = (state.pieces[idx] || state.pieces[idx - 1])?.id || null;
     commit();
     sync.schedule();
@@ -1317,6 +1443,7 @@
         if (localChanged) {
           for (const p of state.pieces) hashes.set(p.id, pieceHash(p));
           localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          history.seed();
           renderAll();
           engine.sync();
         }
