@@ -437,7 +437,10 @@ input[type="range"] { touch-action: pan-y; accent-color: var(--green); }
   background: #000;
 }
 .track.head { border: 0; padding: 0 10px; }
-.track.muted .steps { opacity: 0.45; }
+/* Piste sur OFF : seuls le nom et le bouton restent ; ON fait réapparaître son, niveau et cases. */
+.track.muted { grid-template-columns: 1fr; }
+.track.muted .steps, .track.muted .sel, .track.muted .track-sound, .track.muted .level { display: none; }
+.track.muted .track-name { color: var(--muted); }
 .track-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
 .track-name { font-family: var(--cond); font-size: 16px; letter-spacing: 0.06em; text-transform: uppercase; }
 .track-sound { font-size: 12px; color: var(--muted); }
