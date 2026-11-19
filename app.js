@@ -653,6 +653,7 @@
     },
 
     async play() {
+      awake.set(true); // dès le geste de l'utilisateur, avant toute attente
       await this.ensure();
       this.playing = true;
       rhythm.restart();
@@ -662,6 +663,7 @@
     },
 
     stop() {
+      awake.set(false);
       this.playing = false;
       for (const midi of [...this.chains.keys()]) this.release(midi);
       for (const kind of SAMPLED) for (const midi of [...this.voicesOf(kind).keys()]) this.stopSample(kind, midi);
@@ -1753,6 +1755,43 @@
   renderSyncSettings();
   sync.render();
   if (sync.enabled) sync.run();
+
+  // ---------- Écran maintenu allumé pendant la lecture ----------
+  // Screen Wake Lock : tant que le drone joue et que la page est visible, la tablette ne se met pas en veille.
+  // Le navigateur relâche le verrou quand la page passe en arrière-plan ; on le reprend au retour.
+  const awake = {
+    want: false, lock: null, pending: false, failed: false,
+    get supported() { return 'wakeLock' in navigator; },
+    set(on) { this.want = on; this.sync(); },
+    async sync() {
+      const need = this.want && document.visibilityState === 'visible';
+      if (need && !this.lock && !this.pending && this.supported) {
+        this.pending = true;
+        try {
+          const lock = await navigator.wakeLock.request('screen');
+          this.failed = false;
+          lock.addEventListener('release', () => { if (this.lock === lock) { this.lock = null; this.render(); } });
+          this.lock = lock;
+        } catch (e) { this.failed = true; } // batterie faible, mode économie d'énergie, page masquée…
+        this.pending = false;
+        if (!(this.want && document.visibilityState === 'visible')) return this.sync(); // arrêté entre-temps
+      } else if (!need && this.lock) {
+        const lock = this.lock;
+        this.lock = null;
+        lock.release().catch(() => {});
+      }
+      this.render();
+    },
+    render() {
+      const el = $('#awake');
+      if (!el) return;
+      const off = this.want && (!this.supported || this.failed);
+      el.textContent = this.lock ? 'Écran maintenu allumé' : off ? 'Veille non bloquée' : '';
+      el.classList.toggle('warn', off && !this.lock);
+      el.title = off ? 'Ce navigateur ne permet pas de bloquer la mise en veille (iPadOS 16.4 ou plus récent requis ; 18.4 pour l\'app installée, et pas en mode économie d\'énergie).' : '';
+    },
+  };
+  document.addEventListener('visibilitychange', () => awake.sync());
 
   // ---------- Hors ligne (PWA) ----------
   function showToast(text, btnLabel, onClick) {

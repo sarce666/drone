@@ -81,6 +81,10 @@ affichent « Nouvelle version disponible » à leur prochaine ouverture. Dépôt
   valeur par défaut. Sur l'harmonium, la chaîne d'effets est partagée par toutes les notes du pad. La basse n'a
   pas de panneau « Son ».
 - **Barre du haut** : lancer / arrêter (ou barre d'espace), volume général, référence du La4.
+- **Écran maintenu allumé** : tant que le drone joue et que l'app est à l'écran, la tablette ne se met pas en
+  veille (Screen Wake Lock ; « Écran maintenu allumé » s'affiche en haut). À l'arrêt, la veille normale reprend.
+  Il faut iPadOS 16.4 ou plus récent dans Safari, 18.4 pour l'app installée sur l'écran d'accueil ; le mode
+  économie d'énergie peut l'empêcher (« Veille non bloquée » s'affiche alors).
 - **Exporter / Importer** : sauvegarde et restauration de tous les morceaux en JSON.
 
 Les morceaux sont enregistrés sur l'appareil (`localStorage`).

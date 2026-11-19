@@ -139,6 +139,9 @@ input[type="range"] { touch-action: pan-y; accent-color: var(--green); }
   transition: opacity 0.3s;
 }
 .saved.show { opacity: 1; }
+.awake { margin-left: auto; font-size: 12px; color: var(--muted); }
+.awake.warn { color: #f1c232; }
+.awake + .saved { margin-left: 0; }
 
 /* ---------- Disposition ---------- */
 
