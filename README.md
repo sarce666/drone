@@ -85,6 +85,10 @@ affichent « Nouvelle version disponible » à leur prochaine ouverture. Dépôt
   veille (Screen Wake Lock ; « Écran maintenu allumé » s'affiche en haut). À l'arrêt, la veille normale reprend.
   Il faut iPadOS 16.4 ou plus récent dans Safari, 18.4 pour l'app installée sur l'écran d'accueil ; le mode
   économie d'énergie peut l'empêcher (« Veille non bloquée » s'affiche alors).
+- **Mise à jour sans perdre le son** : quand « Nouvelle version disponible » s'affiche, « Plus tard » laisse
+  jouer (la nouvelle version s'ouvrira au prochain lancement de l'app). « Recharger » recharge la page puis le
+  son reprend : tout seul si le navigateur l'autorise, sinon en touchant l'écran (« Toucher pour reprendre le
+  son », cas de l'iPad). Pareil si la tablette recharge la page d'elle-même pendant que ça joue.
 - **Exporter / Importer** : sauvegarde et restauration de tous les morceaux en JSON.
 
 Les morceaux sont enregistrés sur l'appareil (`localStorage`).

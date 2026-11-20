@@ -636,7 +636,9 @@
     voicesOf(kind) { return kind === 'bass' ? this.bass : this.samples; },
     fading: new Map(),   // voix en cours de relâche (encore mesurées pour la lueur)
 
-    async ensure() {
+    // Un seul démarrage à la fois, même si deux gestes arrivent ensemble.
+    ensure() { return this.booting ??= this.boot().catch(e => { this.booting = null; throw e; }); },
+    async boot() {
       if (this.ready) return;
       if (typeof Tone === 'undefined') { alert('Tone.js introuvable (vendor/Tone.js).'); throw new Error('Tone missing'); }
       await Tone.start();
@@ -654,6 +656,7 @@
 
     async play() {
       awake.set(true); // dès le geste de l'utilisateur, avant toute attente
+      resume.mark(true);
       await this.ensure();
       this.playing = true;
       rhythm.restart();
@@ -664,6 +667,7 @@
 
     stop() {
       awake.set(false);
+      resume.mark(false);
       this.playing = false;
       for (const midi of [...this.chains.keys()]) this.release(midi);
       for (const kind of SAMPLED) for (const midi of [...this.voicesOf(kind).keys()]) this.stopSample(kind, midi);
@@ -1793,13 +1797,46 @@
   };
   document.addEventListener('visibilitychange', () => awake.sync());
 
+  // ---------- Reprise du son après un rechargement ----------
+  // Si la page est rechargée pendant que ça joue (mise à jour, ou rechargement décidé par la tablette),
+  // le son repart : tout seul quand le navigateur l'autorise, sinon au premier toucher (iPad).
+  const RESUME_KEY = 'drones-playing';
+  const resume = {
+    timer: null,
+    stamp() { try { sessionStorage.setItem(RESUME_KEY, String(Date.now())); } catch (e) { /* stockage indisponible */ } },
+    mark(on) {
+      clearInterval(this.timer);
+      if (on) { this.stamp(); this.timer = setInterval(() => this.stamp(), 10000); }
+      else { try { sessionStorage.removeItem(RESUME_KEY); } catch (e) { /* idem */ } }
+    },
+    // Récent seulement : pas de reprise si la page revient longtemps après.
+    wanted() {
+      try { const t = Number(sessionStorage.getItem(RESUME_KEY)); return t > 0 && Date.now() - t < 60000; }
+      catch (e) { return false; }
+    },
+    async start() {
+      if (!this.wanted() || typeof Tone === 'undefined' || !cur()) { this.mark(false); return; }
+      const ctx = Tone.getContext().rawContext;
+      try { await Promise.race([ctx.resume(), new Promise(r => setTimeout(r, 400))]); } catch (e) { /* geste requis */ }
+      if (ctx.state === 'running') { engine.play(); return; }
+      const el = $('#resume');
+      el.hidden = false;
+      el.addEventListener('click', () => { el.hidden = true; engine.play(); }, { once: true });
+    },
+  };
+  window.addEventListener('pagehide', () => { if (engine.playing) resume.stamp(); });
+
   // ---------- Hors ligne (PWA) ----------
-  function showToast(text, btnLabel, onClick) {
+  function showToast(text, btnLabel, onClick, laterLabel) {
     const t = $('#toast');
     $('#toast-text').textContent = text;
     const b = $('#toast-btn');
     b.textContent = btnLabel;
     b.onclick = onClick;
+    const l = $('#toast-later');
+    l.hidden = !laterLabel;
+    l.textContent = laterLabel || '';
+    l.onclick = () => { t.hidden = true; };
     t.hidden = false;
   }
 
@@ -1849,7 +1886,8 @@
         if (!w) return;
         w.addEventListener('statechange', () => {
           if (w.state === 'installed' && navigator.serviceWorker.controller) {
-            showToast('Nouvelle version disponible.', 'Recharger', () => location.reload());
+            // « Plus tard » : la nouvelle version est déjà installée, elle s'ouvrira au prochain lancement.
+            showToast('Nouvelle version disponible.', 'Recharger', () => location.reload(), 'Plus tard');
           }
         });
       });
@@ -1862,4 +1900,5 @@
   updateCacheStatus();
 
   renderAll();
+  resume.start();
 })();
