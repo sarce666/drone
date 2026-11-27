@@ -562,7 +562,7 @@ input[type="range"] { touch-action: pan-y; accent-color: var(--green); }
   background: var(--green);
   color: #000;
   border-color: var(--green);
-  box-shadow: 0 0 calc(2px + 16px * var(--lvl, 0)) rgba(93, 196, 85, calc(0.2 + 0.7 * var(--lvl, 0)));
+  box-shadow: 0 0 2px rgba(93, 196, 85, 0.2); /* la lueur selon le niveau est posée par app.js (setGlow) */
 }
 .cell.na {
   border: 2px dashed #3a3a3a;

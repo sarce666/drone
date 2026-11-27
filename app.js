@@ -488,7 +488,7 @@
         src.connect(g).connect(this.out);
         src.start(t, offset);
         src.stop(t + len + 0.05);
-        src.onended = () => { this.sources.delete(src); g.disconnect(); };
+        src.onended = () => { this.sources.delete(src); src.disconnect(); g.disconnect(); };
         this.sources.add(src);
         this.next = t + len - xf;
         this.first = false;
@@ -593,6 +593,7 @@
           const src = this.ctx.createBufferSource();
           src.buffer = buf;
           src.connect(this.gain(id));
+          src.onended = () => src.disconnect(); // libère la frappe terminée
           src.start(t);
         }
         if (this.onStep) setTimeout(() => this.onStep(step, loop), Math.max(0, (t - now) * 1000));
@@ -723,7 +724,7 @@
       c.synth.triggerRelease();
       setTimeout(() => {
         this.fading.delete(c);
-        cellEls.voices.get(midi)?.style.setProperty('--lvl', 0);
+        setGlow(cellEls.voices.get(midi), 0);
         for (const node of [c.synth, c.dist, c.autoFilter, c.chorus, c.lfoPan, c.lfoVol, c.panner, c.meter]) {
           try { node?.dispose(); } catch (e) { /* ignore */ }
         }
@@ -756,7 +757,7 @@
       sv.stop();
       setTimeout(() => {
         this.fading.delete(sv);
-        cellEls[kind].get(midi)?.style.setProperty('--lvl', 0);
+        setGlow(cellEls[kind].get(midi), 0);
       }, SAMPLE_RELEASE_MS);
     },
 
@@ -881,19 +882,34 @@
     setTimeout(() => { try { old.dispose(); } catch (e) { /* ignore */ } }, RELEASE_MS);
   }
 
+  // Lueur des cases selon le niveau du son. L'ombre est écrite directement, par paliers et seulement quand
+  // le palier change. Surtout pas via une variable CSS (--lvl) réécrite à chaque image : dans Safari, ça fait
+  // gonfler la mémoire de la page d'environ 200 Mo par minute, jusqu'à ce que l'iPad la recharge en pleine lecture.
+  const GLOW_STEPS = 12, GLOW_MS = 50;
+  function setGlow(el, step) {
+    if (!el) return;
+    if (!el.classList.contains('on')) step = 0;
+    if (el._glow === step) return;
+    el._glow = step;
+    const l = step / GLOW_STEPS;
+    el.style.boxShadow = step ? `0 0 ${(2 + 16 * l).toFixed(1)}px rgba(93, 196, 85, ${(0.2 + 0.7 * l).toFixed(2)})` : '';
+  }
   function meterLoop() {
     const paint = (kind, midi, meter) => {
       const el = cellEls[kind].get(midi);
-      if (el) el.style.setProperty('--lvl', clamp(meter.getValue() * 3, 0, 1).toFixed(3));
+      if (el) setGlow(el, Math.round(clamp(meter.getValue() * 3, 0, 1) * GLOW_STEPS));
     };
-    const tick = () => {
+    let last = 0;
+    const tick = now => {
+      requestAnimationFrame(tick);
+      if (now - last < GLOW_MS) return;
+      last = now;
       for (const [midi, c] of engine.chains) paint('voices', midi, c.meter);
       for (const kind of SAMPLED) for (const [midi, sv] of engine.voicesOf(kind)) if (!sv.loading) paint(kind, midi, sv.meter);
       for (const [obj, { kind, midi }] of engine.fading) {
         const live = kind === 'voices' ? engine.chains : engine.voicesOf(kind);
         if (!live.has(midi)) paint(kind, midi, obj.meter);
       }
-      requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
   }
